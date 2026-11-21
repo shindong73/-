@@ -72,11 +72,11 @@ NEGATIVE_TERMS = re.compile(
 # Exclude opposition-led anti-government street rallies and response stories
 # about those same rallies. This is an editorial choice, not a neutral news feed.
 RALLY_EVENT_RE = re.compile(
-    r"장외\\s*(?:집회|투쟁)|정권\\s*규탄|(?:대통령|정권|정부|이재명)\\s*(?:퇴진|규탄)|"
-    r"반정부\\s*(?:집회|시위)|퇴진\\s*(?:집회|시위)"
+    r"장외\s*(?:집회|투쟁)|정권\s*규탄|(?:대통령|정권|정부|이재명)\s*(?:퇴진|규탄)|"
+    r"반정부\s*(?:집회|시위)|퇴진\s*(?:집회|시위)"
 )
 RALLY_CONTEXT_RE = re.compile(
-    r"국민의힘|국힘|보수\\s*(?:단체|진영)|야당|대구|이재명|李\\s*대통령"
+    r"국민의힘|국힘|보수\s*(?:단체|진영)|야당|대구|이재명|李\s*대통령"
 )
 
 
