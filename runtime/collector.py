@@ -69,6 +69,21 @@ NEGATIVE_TERMS = re.compile(
 # public figures do not necessarily indicate criticism of the governing party.
 
 
+# Exclude opposition-led anti-government street rallies and response stories
+# about those same rallies. This is an editorial choice, not a neutral news feed.
+RALLY_EVENT_RE = re.compile(
+    r"장외\\s*(?:집회|투쟁)|정권\\s*규탄|(?:대통령|정권|정부|이재명)\\s*(?:퇴진|규탄)|"
+    r"반정부\\s*(?:집회|시위)|퇴진\\s*(?:집회|시위)"
+)
+RALLY_CONTEXT_RE = re.compile(
+    r"국민의힘|국힘|보수\\s*(?:단체|진영)|야당|대구|이재명|李\\s*대통령"
+)
+
+
+def excluded_anti_government_rally(title: str) -> bool:
+    return bool(RALLY_EVENT_RE.search(title) and RALLY_CONTEXT_RE.search(title))
+
+
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
@@ -131,6 +146,8 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
     if not POLITICAL_RE.search(title):
         return False
     if len(title) < 8 or re.search(r"\[광고\]|\[연예\]|오늘의\s*운세|야구\s*경기", title):
+        return False
+    if excluded_anti_government_rally(title):
         return False
     if block_negative and DEM_ACTORS.search(title) and NEGATIVE_TERMS.search(title):
         return False

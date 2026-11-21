@@ -23,6 +23,27 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(collector.political_ok('[속보] 민주당 의원 구속 수사', block_negative=True))
         self.assertFalse(collector.political_ok('[속보] 이재명 대통령 사퇴 논란', block_negative=True))
 
+    def test_exclude_opposition_street_rally_and_response(self):
+        blocked = [
+            "국민의힘 대구 장외집회 개최 이재명 정부 압박",
+            "민주당 국민의힘 대구 장외집회 비판",
+            "국민의힘 대구 장외투쟁에 민주당 반박",
+            "대구 장외집회 두고 민주당과 국민의힘 공방",
+            "보수단체 이재명 퇴진 집회 개최",
+        ]
+        for title in blocked:
+            with self.subTest(title=title):
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+        allowed = [
+            "이재명 대통령 울산 전통시장 방문",
+            "국민의힘 국회 예산안 협상 참여",
+            "대구시 국회에 교통 예산 증액 요청",
+            "민주당 정부 정책 발표",
+        ]
+        for title in allowed:
+            with self.subTest(title=title):
+                self.assertTrue(collector.political_ok(title, block_negative=True))
+
     def test_rewrite_is_nonidentical(self):
         self.assertEqual(collector.rewrite_headline('[속보] 국회, 주요 법안 통과'), '국회가 주요 법안 통과')
         self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '정부가 국정 현안 발표')
