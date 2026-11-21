@@ -69,7 +69,7 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(len(test['items']),1)
                 self.assertTrue(test['items'][0]['is_test'])
                 self.assertIn('[테스트]', test['items'][0]['title'])
-                another={**alert,'id':'abc2'}
+                another={**alert,'id':'abc2','title':'대통령이 국정 현안 검토'}
                 with patch.object(collector,'fetch_rss',return_value=[alert,another]):
                     third=collector.run('live')
                 self.assertIn('abc2',[x['id'] for x in third['items']])
