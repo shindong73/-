@@ -79,6 +79,24 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(collector.same_story('이 대통령, 울산 전통시장 방문', '이 대통령 울산 전통시장 방문'))
         self.assertFalse(collector.same_story('이 대통령 울산 전통시장 방문', '이 대통령 울산 AI 데이터센터 방문'))
 
+    def test_cross_outlet_realistic_headline_variants(self):
+        self.assertTrue(collector.same_story(
+            '이 대통령 수능 부정행위 신고포상금 건당 최소 1억 행위자 수만큼 가산',
+            '이 대통령 수능 부정행위 포상금 최대 아닌 최소 1억 가담자 수만큼 증액'
+        ))
+        self.assertTrue(collector.same_story(
+            '李 울산 SK AI데이터센터 방문 국가 경쟁 위해 속도전이 핵심',
+            '이 대통령 울산 SK AI 데이터센터 방문 AI 고속도로가 AI 대전환 열 것'
+        ))
+        self.assertTrue(collector.same_story(
+            '이 대통령 울산 전통시장서 장바구니 물가 점검 내년엔 좀 더 좋아질 것',
+            '이 대통령 울산 전통시장 두 곳 방문 내년에는 조금 더 좋아질 것'
+        ))
+        self.assertFalse(collector.same_story(
+            '민주당 조희대 대법원장 탄핵 추진',
+            '민주당 조희대 대법원장 탄핵 철회'
+        ))
+
     def test_direct_jtbc_source_validation(self):
         source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
         <pubDate>Sun, 22 Nov 2026 00:59:00 +0000</pubDate>

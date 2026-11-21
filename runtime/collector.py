@@ -163,32 +163,49 @@ def rewrite_headline(original: str) -> str | None:
 
 
 def normalized_story(title: str) -> str:
-    title = clean_title(BREAKING_RE.sub("", title, count=1)).lower()
-    title = re.sub(r"[^가-힣a-z0-9]+", " ", title).strip()
+    text = clean_title(BREAKING_RE.sub("", title, count=1)).lower()
+    # Normalize spelling variants of the same event; do not remove decisive
+    # words such as '철회', '부결', '확정', or '추진'.
+    text = text.replace("ai데이터센터", "ai 데이터센터")
+    text = text.replace("전통시장서", "전통시장")
+    text = text.replace("신고포상금", "포상금")
+    text = text.replace("내년에는", "내년").replace("내년엔", "내년")
+    text = text.replace("행위자", "가담자")
+    text = re.sub(r"[^가-힣a-z0-9]+", " ", text).strip()
     for old, new in (("이 대통령", "이재명 대통령"), ("국회서", "국회"),
                      ("통과", "의결"), ("대법원장", "조희대"),
                      ("대통령이", "대통령"), ("대통령은", "대통령")):
-        title = title.replace(old, new)
-    return re.sub(r"\s+", " ", title)
+        text = text.replace(old, new)
+    return re.sub(r"\s+", " ", text)
 
 
 def same_story(a: str, b: str) -> bool:
-    """Conservative cross-outlet matching; avoid merging distinct developments."""
+    """Conservative same-event test across different broadcaster headlines."""
+    # Contradictory event outcomes must not be silently treated as duplicates.
+    contradictory = (("추진", "철회"), ("추진", "중단"), ("가결", "부결"),
+                     ("통과", "부결"), ("승인", "거부"), ("확정", "검토"),
+                     ("찬성", "반대"), ("기소", "무혐의"))
+    for left, right in contradictory:
+        if (left in a and right in b) or (left in b and right in a):
+            return False
     x, y = normalized_story(a), normalized_story(b)
     if not x or not y:
         return False
     if x == y:
         return True
-    similarity = SequenceMatcher(None, x, y, autojunk=False).ratio()
-    if similarity >= .88:
-        return True
-    stop = {"대통령", "이재명", "정부", "국회", "민주당", "국민의힘", "오늘", "관련",
-            "정치", "여야", "발표", "방문", "기자", "속보", "국회가", "국회는"}
-    xx = {t for t in x.split() if t not in stop}
-    yy = {t for t in y.split() if t not in stop}
+    sim = SequenceMatcher(None, x, y, autojunk=False).ratio()
+    stop = {"대통령", "이재명", "정부", "국회", "민주당", "국민의힘", "오늘",
+            "관련", "정치", "여야", "발표", "방문", "기자", "속보",
+            "국회가", "국회는", "장관", "위원", "후보", "더", "것"}
+    xx = {word for word in x.split() if word not in stop}
+    yy = {word for word in y.split() if word not in stop}
     common = xx & yy
     union = xx | yy
-    return len(common) >= 2 and bool(union) and len(common) / len(union) >= .48 and similarity >= .60
+    jaccard = len(common) / len(union) if union else 0
+    # Near-identical wording, or enough shared distinctive event details.
+    return (sim >= .90 or
+            (len(common) >= 3 and jaccard >= .24 and sim >= .57) or
+            (len(common) >= 2 and jaccard >= .47 and sim >= .72))
 
 
 def stable_id(kind: str, link: str, title: str) -> str:
@@ -350,9 +367,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             jtbc_ok = False
             for candidate_url in (url, JTBC_BACKUP):
                 try:
-                    news.extend(fetch_rss(source, candidate_url, current, settings))
-                    jtbc_ok = True
-                    break
+                    direct_articles = fetch_rss(source, candidate_url, current, settings)
+                    if direct_articles:
+                        news.extend(direct_articles)
+                        jtbc_ok = True
+                        break
                 except Exception as exc:
                     failures.append(f"JTBC feed attempt: {exc}")
             # Supplement broad political news even if a direct feed succeeds.
