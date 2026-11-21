@@ -1,0 +1,48 @@
+/* SUITE font is loaded from a public CDN; no font binaries are included. */
+@import url('https://cdn.jsdelivr.net/gh/sun-typeface/SUITE@2/fonts/static/woff2/SUITE.css');
+:root {
+  --red: #9a0d0d;
+  --title-ink: #631719;
+  --label-h: clamp(30px, 5.83vh, 70px);
+  --strip-h: clamp(66px, 16.48vh, 195px);
+  --letter-spacing: -0.095em;
+}
+* { box-sizing: border-box; }
+html,body {margin:0; width:100%;height:100%; overflow:hidden; background:transparent !important;}
+body {font-family:'SUITE','Malgun Gothic',sans-serif; text-rendering:optimizeLegibility; -webkit-font-smoothing:antialiased;}
+#bar {
+  position:absolute; left:2.31vw; right:4.05vw; bottom:7.45vh;
+  height:calc(var(--label-h) + var(--strip-h));
+  opacity:0; visibility:hidden; transform:translateY(16px);
+  pointer-events:none;
+}
+#label {
+  width:max-content; max-width:100%;
+  height:var(--label-h); padding:0 clamp(10px, 2vw, 42px);
+  background:#fff;color:var(--title-ink);
+  display:flex;align-items:center;
+  font-weight:900; font-size:clamp(20px, 2.46vw, 52px);
+  letter-spacing:-.102em;white-space:nowrap; line-height:1;
+}
+#red-strip {
+  width:100%;height:var(--strip-h);display:flex;align-items:center;
+  background:var(--red);overflow:hidden;
+}
+#headline {
+  flex:1; color:#fff;font-size:clamp(22px,3.05vw,64px);
+  font-weight:800;line-height:1.12;letter-spacing:var(--letter-spacing);
+  padding:0 clamp(18px,2.1vw,45px);
+  white-space:nowrap;overflow:hidden;text-overflow:clip;
+  text-shadow:0 1px 3px rgba(0,0,0,.16);
+}
+#bar.visible{visibility:visible;animation:slideIn .38s ease-out forwards;}
+#bar.closing{visibility:visible;animation:slideOut .35s ease-in forwards;}
+@keyframes slideIn {from {opacity:0;transform:translateY(16px)} to {opacity:1;transform:translateY(0)}}
+@keyframes slideOut{from {opacity:1;transform:translateY(0)} to{opacity:0;transform:translateY(12px)}}
+@media (max-aspect-ratio: 4/5) {
+  :root {--label-h:clamp(34px,6.7vw,68px); --strip-h:clamp(78px,13vw,145px);}
+  #bar{left:3vw;right:3vw;bottom:7.4vh;}
+  #label{padding:0 clamp(10px,2.5vw,26px);font-size:clamp(18px,4.5vw,42px);}
+  #headline{font-size:clamp(20px,4.9vw,46px);padding:0 3vw;}
+}
+@media (prefers-reduced-motion: reduce){#bar.visible,#bar.closing{animation-duration:.03s}}

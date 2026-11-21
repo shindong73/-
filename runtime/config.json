@@ -1,0 +1,14 @@
+{
+  "exclude_unfavorable_dem_news": true,
+  "headline_max_age_minutes": 90,
+  "earthquake_max_age_minutes": 90,
+  "min_magnitude": 4.0,
+  "earthquake_region": {
+    "minlatitude": 31.0,
+    "maxlatitude": 44.0,
+    "minlongitude": 123.0,
+    "maxlongitude": 133.0
+  },
+  "active_window_minutes": 16,
+  "max_news_per_run": 3
+}
