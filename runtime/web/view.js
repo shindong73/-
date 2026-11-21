@@ -33,17 +33,55 @@
     const top = window.innerHeight - 1080 * scale;
     frame.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
   }
-  // Scale characters horizontally when the line is too long. Never reduce font size.
-  function fitWidthOnly(element, box) {
-    element.style.transform = 'scaleX(1)';
-    const boxStyle = getComputedStyle(box);
-    const available = box.clientWidth - parseFloat(boxStyle.paddingLeft) - parseFloat(boxStyle.paddingRight);
-    const measured = element.scrollWidth;
-    const ratio = measured && available > 0 ? Math.min(1, available / measured) : 1;
-    element.style.transform = `scaleX(${ratio})`;
+  // Short headlines: relax negative tracking toward the natural width (max: 0px).
+  // Long headlines: keep the 150px font size and compress horizontally as needed.
+  // Never stretch characters beyond their undistorted (scaleX(1)) proportions.
+  function fitHeadline() {
+    headline.style.transform = 'scaleX(1)';
+    headline.style.letterSpacing = '';
+    strip.style.justifyContent = 'flex-start';
+    if (!headline.textContent) return;
+    const boxStyle = getComputedStyle(strip);
+    const available = strip.clientWidth -
+      parseFloat(boxStyle.paddingLeft) - parseFloat(boxStyle.paddingRight);
+    if (!(available > 0)) return;
+    const compactWidth = headline.scrollWidth;
+    if (compactWidth > available) {
+      headline.style.transform = `scaleX(${available / compactWidth})`;
+      return;
+    }
+    // The compact text fits. Increase only the *spaces between letters*,
+    // not the glyphs, up to SUITE's original, unexpanded proportions.
+    headline.style.letterSpacing = '0px';
+    const naturalWidth = headline.scrollWidth;
+    if (naturalWidth < available) {
+      // If there is still room, balance the unused space on both sides.
+      strip.style.justifyContent = 'center';
+      return;
+    }
+    // Choose tracking between -0.105em and 0px to fill the strip.
+    const fontSize = parseFloat(getComputedStyle(headline).fontSize) || 150;
+    let lo = -0.105 * fontSize;
+    let hi = 0;
+    for (let i = 0; i < 16; i++) {
+      const mid = (lo + hi) / 2;
+      headline.style.letterSpacing = mid + 'px';
+      if (headline.scrollWidth > available) hi = mid;
+      else lo = mid;
+    }
+    headline.style.letterSpacing = lo + 'px';
   }
-  function fitHeadline() { fitWidthOnly(headline, strip); }
-  function fitLabel() { fitWidthOnly(label, labelBox); }
+  function fitLabel() {
+    label.style.transform = 'scaleX(1)';
+    label.style.letterSpacing = '';
+    const available = labelBox.clientWidth -
+      parseFloat(getComputedStyle(labelBox).paddingLeft) -
+      parseFloat(getComputedStyle(labelBox).paddingRight);
+    const measured = label.scrollWidth;
+    if (measured > available && available > 0) {
+      label.style.transform = `scaleX(${available / measured})`;
+    }
+  }
   function refreshGeometry() {
     fitFrame();
     fitLabel();
