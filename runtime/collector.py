@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+from difflib import SequenceMatcher
 import html
 import json
 import os
@@ -17,7 +18,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
 
@@ -28,14 +29,25 @@ CONFIG_PATH = ROOT / "config.json"
 UTC = timezone.utc
 
 # RSS feeds are retrieved server-side: mobile devices do not directly contact them.
+# KBS/MBC discovery via Google News; not official broadcaster RSS.
+# JTBC primary feed is the user-provided breaking RSS.
 NEWS_FEEDS = {
     "KBS": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:news.kbs.co.kr 속보 when:1d", "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "MBC": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:imnews.imbc.com 속보 when:1d", "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
+    "JTBC": "https://news-ex.jtbc.co.kr/v1/get/rss/newsflesh",
 }
+JTBC_BACKUP = "https://fs.jtbc.co.kr/RSS/newsflash.xml"
+JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
+    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+    "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+})
+
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 # Only explicitly breaking-news-labelled headlines are selected.
@@ -43,16 +55,19 @@ BREAKING_RE = re.compile(r"(?:\[\s*(?:긴급\s*)?속보\s*\]|\(\s*속보\s*\)|�
 POLITICAL_RE = re.compile(
     r"대통령|대통령실|청와대|국회|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
     r"국무회의|정부|총리|장관|정당|선거|대선|총선|지방선거|의원|특검|탄핵|"
-    r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석"
+    r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
+    r"민주유공자|사법개혁|정책발표|국정과제|공직"
 )
 # Conservative editorial exclusion: title-only rules have false positives and false negatives.
 # The overlay must not be described as neutral or comprehensive news coverage.
 DEM_ACTORS = re.compile(r"더불어민주당|민주당|이재명|정청래|김민석|대통령실|현\s*정부|집권여당")
 NEGATIVE_TERMS = re.compile(
-    r"압수수색|소환|구속|체포|기소|유죄|징역|실형|수사|비리|의혹|논란|"
-    r"부패|뇌물|사퇴|사임|탄핵|징계|제명|고발|고소|공천|폭로|패배|"
-    r"사과|파면|해임|불법|위법|선거법|벌금|기각|지지율\s*하락|폭락|위기"
+    r"압수수색|소환|구속|체포|기소|유죄|징역|실형|비리|부패|뇌물|"
+    r"사퇴|사임|징계|제명|불법|위법|벌금|당내\s*논란|공천\s*의혹|지지율\s*하락"
 )
+# Headline-only editorial selection is fallible; negative terms for unrelated
+# public figures do not necessarily indicate criticism of the governing party.
+
 
 
 def now_utc() -> datetime:
@@ -107,13 +122,15 @@ def write_json(path: Path, value: dict) -> None:
 
 def clean_title(title: str) -> str:
     text = html.unescape(re.sub(r"<[^>]+>", "", title or ""))
-    text = re.sub(r"\s*[-|]\s*(?:KBS\s*뉴스|KBS뉴스|MBC\s*뉴스|MBC뉴스|MBC)\s*$", "", text, flags=re.I)
+    text = re.sub(r"\s*[-|]\s*(?:KBS\s*뉴스|KBS뉴스|MBC\s*뉴스|MBC뉴스|MBC|JTBC\s*뉴스|JTBC)\s*$", "", text, flags=re.I)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:160]
 
 
 def political_ok(title: str, *, block_negative: bool) -> bool:
-    if not BREAKING_RE.search(title) or not POLITICAL_RE.search(title):
+    if not POLITICAL_RE.search(title):
+        return False
+    if len(title) < 8 or re.search(r"\[광고\]|\[연예\]|오늘의\s*운세|야구\s*경기", title):
         return False
     if block_negative and DEM_ACTORS.search(title) and NEGATIVE_TERMS.search(title):
         return False
@@ -121,35 +138,57 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
 
 
 def rewrite_headline(original: str) -> str | None:
-    """Conservative, no-LLM headline restyling. Never fabricate a news event.
-
-    When meaning-preserving rules cannot safely paraphrase, drop the article.
-    Rephrasing does NOT grant redistribution rights.
-    """
+    """Format verifiable facts for an on-screen lower-third, no invented claims."""
     title = BREAKING_RE.sub("", original, count=1).strip(" \t:：-·")
     title = re.sub(r"\s+", " ", title).strip()
-    if not title or len(title) < 7 or len(title) > 82:
+    if not title or len(title) < 8 or len(title) > 110:
         return None
-    if re.search(r'[“”"「」『』]', title):
-        # Quotes, accusations and verbal attributions require human review.
-        return None
-    # Subject/object comma in journalistic telegraphese -> grammatical particle.
-    match = re.fullmatch(r"([가-힣A-Za-z0-9·\s]{2,24}?),\s+(.{4,63})", title)
-    if match:
-        actor, action = match.groups()
-        # Strict headline predicate list to avoid flipping speaker/target roles.
-        if re.search(r"(발표|선포|의결|가결|통과|발의|요청|제출|소집|합의|공개|확정|승인|지시|거부|수용|제안|추진|개최|돌입|중단|복귀|결정|검토|촉구|선임|임명|해임)(?:했다|해|함|키로)?$", action):
-            end = actor[-1]
-            particle = '이' if '가' <= end <= '힣' and ((ord(end)-0xAC00) % 28) else '가'
-            result = f"{actor}{particle} {action}"
-            return result if result != title and len(result) <= 76 else None
-    # Change safe word order in classic institutional headlines, without adding facts.
-    match = re.fullmatch(r"(국회|국무회의|정부|대통령실)\s+(.{4,60})\s+(의결|가결|발표|확정|통과)", title)
-    if match:
-        institution, subject, decision = match.groups()
-        result = f"{institution}에서 {subject} {decision}"
-        return result if len(result) <= 76 else None
-    return None
+    # Keep attributed claims as claims, not factual statements.
+    if not re.search(r'[“”"「」『』‘’]', title):
+        match = re.fullmatch(r"([가-힣A-Za-z0-9·\s]{2,24}?),\s+(.{4,75})", title)
+        if match:
+            actor, action = match.groups()
+            if re.search(r"(발표|선포|의결|가결|통과|발의|요청|제출|합의|공개|"
+                         r"확정|승인|지시|거부|수용|제안|추진|개최|중단|결정|"
+                         r"검토|촉구|임명)(?:했다|해|함|키로)?$", action):
+                final = actor[-1]
+                particle = '이' if '가' <= final <= '힣' and ((ord(final)-0xAC00) % 28) else '가'
+                changed = f"{actor}{particle} {action}"
+                if len(changed) <= 100:
+                    return changed
+    # For other headlines, preserve the verified original wording rather than
+    # dropping the item or paraphrasing inaccurately. The leading breaking badge
+    # and broadcaster suffix have already been removed.
+    return title
+
+
+def normalized_story(title: str) -> str:
+    title = clean_title(BREAKING_RE.sub("", title, count=1)).lower()
+    title = re.sub(r"[^가-힣a-z0-9]+", " ", title).strip()
+    for old, new in (("이 대통령", "이재명 대통령"), ("국회서", "국회"),
+                     ("통과", "의결"), ("대법원장", "조희대"),
+                     ("대통령이", "대통령"), ("대통령은", "대통령")):
+        title = title.replace(old, new)
+    return re.sub(r"\s+", " ", title)
+
+
+def same_story(a: str, b: str) -> bool:
+    """Conservative cross-outlet matching; avoid merging distinct developments."""
+    x, y = normalized_story(a), normalized_story(b)
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    similarity = SequenceMatcher(None, x, y, autojunk=False).ratio()
+    if similarity >= .88:
+        return True
+    stop = {"대통령", "이재명", "정부", "국회", "민주당", "국민의힘", "오늘", "관련",
+            "정치", "여야", "발표", "방문", "기자", "속보", "국회가", "국회는"}
+    xx = {t for t in x.split() if t not in stop}
+    yy = {t for t in y.split() if t not in stop}
+    common = xx & yy
+    union = xx | yy
+    return len(common) >= 2 and bool(union) and len(common) / len(union) >= .48 and similarity >= .60
 
 
 def stable_id(kind: str, link: str, title: str) -> str:
@@ -159,23 +198,31 @@ def stable_id(kind: str, link: str, title: str) -> str:
 def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[dict]:
     root = ET.fromstring(get_url(url))
     items = []
+    counters = {"raw": 0, "politics": 0, "recent": 0, "source": 0}
     for item in root.findall(".//item"):
+        counters["raw"] += 1
         title = clean_title(item.findtext("title") or "")
         if not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
             continue
-        published = parse_date(item.findtext("pubDate"))
+        counters["politics"] += 1
+        published = parse_date(item.findtext("pubDate") or item.findtext("published"))
         if not published or not (current - timedelta(minutes=settings["headline_max_age_minutes"]) <= published <= current + timedelta(minutes=5)):
             continue
+        counters["recent"] += 1
         link = (item.findtext("link") or "").strip()
-        # For Google News, the originating source is checked too; query terms alone aren't a permission/license.
-        if source in NEWS_FEEDS:
-            # Google News search is a discovery layer, not an official broadcaster RSS.
-            # An explicit originating source name is required to prevent unrelated matches.
+        if not link.startswith("https://"):
+            continue
+        if source in {"KBS", "MBC"} or "news.google.com" in url:
+            # Google News is discovery, so the original publisher must match.
             source_name = (item.findtext("source") or "").strip().upper()
             if source not in source_name:
                 continue
-        if not link.startswith("https://"):
-            continue
+        else:
+            # The JTBC first-party RSS must point to an actual JTBC article.
+            host = urlparse(link).hostname or ""
+            if not (host == "jtbc.co.kr" or host.endswith(".jtbc.co.kr")):
+                continue
+        counters["source"] += 1
         rewritten = rewrite_headline(title)
         if not rewritten:
             continue
@@ -188,6 +235,9 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             "link": link,
             "is_test": False,
         })
+    # Counts only. Never log article headlines or broadcast labels publicly.
+    print(f"RSS {source}: seen={counters['raw']} political={counters['politics']} "
+          f"recent={counters['recent']} verified={counters['source']} eligible={len(items)}")
     return items
 
 
@@ -267,6 +317,16 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     state = read_json(STORE_PATH, {"initialized": False, "seen": {}})
     seen = state.get("seen", {}) if isinstance(state.get("seen", {}), dict) else {}
     prev = read_json(OUT_PATH, {"items": []})
+    # Cross-broadcaster story history lives only inside the encrypted payload.
+    old_history = prev.get("history", [])
+    if not isinstance(old_history, list):
+        old_history = []
+    history: list[dict] = [
+        entry for entry in old_history
+        if isinstance(entry, dict) and isinstance(entry.get("title"), str)
+        and (date := parse_date(entry.get("published_at")))
+        and current - timedelta(hours=24) <= date <= current + timedelta(minutes=5)
+    ][-300:]
     recent: list[dict] = []
     for old in prev.get("items", []):
         when = parse_date(old.get("published_at"))
@@ -280,30 +340,58 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     elif mode == "live":
         news = []
         for source, url in NEWS_FEEDS.items():
+            if source != "JTBC":
+                try:
+                    news.extend(fetch_rss(source, url, current, settings))
+                except Exception as exc:
+                    failures.append(f"{source}: {exc}")
+                continue
+            # Always try the provided direct JTBC breaking feed first.
+            jtbc_ok = False
+            for candidate_url in (url, JTBC_BACKUP):
+                try:
+                    news.extend(fetch_rss(source, candidate_url, current, settings))
+                    jtbc_ok = True
+                    break
+                except Exception as exc:
+                    failures.append(f"JTBC feed attempt: {exc}")
+            # Supplement broad political news even if a direct feed succeeds.
             try:
-                news.extend(fetch_rss(source, url, current, settings))
+                news.extend(fetch_rss("JTBC", JTBC_POLITICS_SEARCH, current, settings))
             except Exception as exc:
-                failures.append(f"{source}: {exc}")
+                failures.append(f"JTBC politics search: {exc}")
+            if not jtbc_ok:
+                print("JTBC direct feed unavailable; search feed remains available.")
         try:
             earthquake = fetch_quakes(current, settings)
         except Exception as exc:
             earthquake = []
             failures.append(f"USGS: {exc}")
-        # Only newest unknown politics headlines per check; all M4+ new quakes.
         news.sort(key=lambda x: x["published_at"], reverse=True)
-        candidate = news[:60] + earthquake
+        candidate = news[:100] + earthquake
         candidate.sort(key=lambda x: x["published_at"], reverse=True)
         politics_added = 0
+        duplicate_count = 0
         for item in candidate:
             if item["id"] in seen:
                 continue
+            # Same event across broadcasters and across successive checks:
+            # consider history within 24h, but do not deduplicate manual tests.
+            duplicate = item["kind"] == "politics" and any(
+                same_story(item["title"], entry["title"]) for entry in history
+            )
             seen[item["id"]] = iso(current)
+            if duplicate:
+                duplicate_count += 1
+                continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
                 continue
             if item["kind"] == "politics":
                 politics_added += 1
+                history.append({"title": item["title"], "published_at": item["published_at"]})
             if state.get("initialized"):
                 new.append(item)
+        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
         state["initialized"] = True
     else:
         raise ValueError(f"Unknown mode: {mode}")
@@ -323,10 +411,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "update_interval_minutes": 5,
         "display_seconds": 30,
         "items": active,
+        "history": history[-300:],
         "last_check_errors": failures,
         "notice": "선별 송출 서비스이며 전체 속보 목록이나 공적 경보 시스템이 아닙니다.",
     }
-    if active != old_items or not OUT_PATH.exists():
+    if active != old_items or output["history"] != old_history or not OUT_PATH.exists():
         write_json(OUT_PATH, output)
     print(f"Mode {mode}. Live items: {len(active)}; new items: {len(new)}; failures: {len(failures)}")
     for failure in failures:

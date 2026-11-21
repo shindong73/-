@@ -47,13 +47,13 @@ if (command === 'restore') {
   const plain = existsSync(ENCRYPTED) ? decrypt(readFileSync(ENCRYPTED, 'utf8')) : JSON.stringify({items:[]});
   const data = JSON.parse(plain);
   if (!Array.isArray(data.items)) throw new Error('Invalid prior feed');
-  writeFileSync(PRIVATE, JSON.stringify({items:data.items}) + '\n');
+  writeFileSync(PRIVATE, JSON.stringify({items:data.items,history:Array.isArray(data.history)?data.history:[]}) + '\n');
   console.log('Private state restored.');
 } else if (command === 'publish') {
   if (!existsSync(PRIVATE)) throw new Error('Run restore/collect first');
   const current = JSON.parse(readFileSync(PRIVATE, 'utf8'));
   if (!Array.isArray(current.items)) throw new Error('Invalid current feed');
-  const safe = JSON.stringify({label:process.env.VIEW_LABEL || '',items:current.items});
+  const safe = JSON.stringify({label:process.env.VIEW_LABEL || '',items:current.items,history:Array.isArray(current.history)?current.history:[]});
   let unchanged = false;
   if (existsSync(ENCRYPTED)) {
     // Fails closed on wrong secret and prevents unnecessary commits.

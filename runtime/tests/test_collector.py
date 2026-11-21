@@ -13,12 +13,12 @@ SETTINGS = {'exclude_unfavorable_dem_news': True, 'headline_max_age_minutes': 90
 
 class CollectorTests(unittest.TestCase):
     def test_only_broadcaster_feeds(self):
-        self.assertEqual(set(collector.NEWS_FEEDS), {'KBS', 'MBC'})
+        self.assertEqual(set(collector.NEWS_FEEDS), {'KBS', 'MBC', 'JTBC'})
         self.assertNotIn('yna.co.kr', '\n'.join(collector.NEWS_FEEDS.values()))
 
     def test_breaking_filter_and_editorial_gate(self):
         self.assertTrue(collector.political_ok('[속보] 국회, 주요 법안 통과', block_negative=True))
-        self.assertFalse(collector.political_ok('국회 의안 처리', block_negative=True))
+        self.assertTrue(collector.political_ok('국회 의안 처리', block_negative=True))
         self.assertFalse(collector.political_ok('[속보] 야구 경기 취소', block_negative=True))
         self.assertFalse(collector.political_ok('[속보] 민주당 의원 구속 수사', block_negative=True))
         self.assertFalse(collector.political_ok('[속보] 이재명 대통령 사퇴 논란', block_negative=True))
@@ -26,8 +26,8 @@ class CollectorTests(unittest.TestCase):
     def test_rewrite_is_nonidentical(self):
         self.assertEqual(collector.rewrite_headline('[속보] 국회, 주요 법안 통과'), '국회가 주요 법안 통과')
         self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '정부가 국정 현안 발표')
-        self.assertIsNone(collector.rewrite_headline('[속보] "기밀 주장" 국회 발표'))
-        self.assertIsNone(collector.rewrite_headline('[속보] 원형 변경이 어려운 문장'))
+        self.assertEqual(collector.rewrite_headline('[속보] "기밀 주장" 국회 발표'), '"기밀 주장" 국회 발표')
+        self.assertEqual(collector.rewrite_headline('[속보] 원형 변경이 어려운 문장'), '원형 변경이 어려운 문장')
 
     def test_rss_parsing_verified_source(self):
         source='''<rss><channel><item><title>[속보] 국회, 주요 법안 통과 - KBS 뉴스</title><source>KBS 뉴스</source>
@@ -73,6 +73,20 @@ class CollectorTests(unittest.TestCase):
                 with patch.object(collector,'fetch_rss',return_value=[alert,another]):
                     third=collector.run('live')
                 self.assertIn('abc2',[x['id'] for x in third['items']])
+
+    def test_same_story_across_outlets(self):
+        self.assertTrue(collector.same_story('국회 민주유공자법 통과', '국회 민주유공자법 의결'))
+        self.assertTrue(collector.same_story('이 대통령, 울산 전통시장 방문', '이 대통령 울산 전통시장 방문'))
+        self.assertFalse(collector.same_story('이 대통령 울산 전통시장 방문', '이 대통령 울산 AI 데이터센터 방문'))
+
+    def test_direct_jtbc_source_validation(self):
+        source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 +0000</pubDate>
+        <link>https://news.jtbc.co.kr/article/NB1234</link></item></channel></rss>'''
+        with patch.object(collector, 'get_url', return_value=source.encode('utf8')):
+            result=collector.fetch_rss('JTBC', collector.NEWS_FEEDS['JTBC'], T, SETTINGS)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]['source'], 'JTBC')
 
 if __name__ == '__main__':
     unittest.main()
