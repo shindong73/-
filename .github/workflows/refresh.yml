@@ -1,5 +1,10 @@
 name: Resource refresh
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'runtime/web/**'
+      - '.github/workflows/refresh.yml'
   schedule:
     - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
@@ -77,14 +82,14 @@ jobs:
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Configure Pages
-        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/configure-pages@v5
       - name: Upload deployable assets
-        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./runtime/_deploy
       - name: Deploy
-        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         id: deploy
         uses: actions/deploy-pages@v4
