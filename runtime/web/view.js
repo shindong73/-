@@ -3,9 +3,12 @@
   const DISPLAY_MS = 30000;
   const POLL_MS = 7000;
   const MAX_AGE_MS = 16 * 60 * 1000;
+  const frame = document.querySelector('#frame');
   const bar = document.querySelector('#bar');
+  const strip = document.querySelector('#red-strip');
   const headline = document.querySelector('#headline');
-  const label = document.querySelector('#label');
+  const labelBox = document.querySelector('#label');
+  const label = document.querySelector('#label-text');
   // The fragment is never sent to the web server; keep this URL secret.
   const password = new URLSearchParams(location.hash.slice(1)).get('key') || '';
   const STORAGE_KEY = 'view-state-v1';
@@ -22,14 +25,33 @@
     seen = Object.fromEntries(Object.entries(seen).filter(([, time]) => Number(time) > Date.now() - 48 * 3600000).slice(-400));
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(seen)); } catch (_) {}
   }
-  function fitHeadline() {
-    headline.style.fontSize = '';
-    let size = Math.max(20, parseFloat(getComputedStyle(headline).fontSize) || 48);
-    while (headline.scrollWidth > headline.clientWidth && size > 18) {
-      size -= 1;
-      headline.style.fontSize = size + 'px';
-    }
+  // Preserve the reference artwork's geometry across 16:9 source sizes.
+  // On portrait sources, place the scaled 16:9 artboard at the bottom.
+  function fitFrame() {
+    const scale = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+    const left = (window.innerWidth - 1920 * scale) / 2;
+    const top = window.innerHeight - 1080 * scale;
+    frame.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
   }
+  // Scale characters horizontally when the line is too long. Never reduce font size.
+  function fitWidthOnly(element, box) {
+    element.style.transform = 'scaleX(1)';
+    const boxStyle = getComputedStyle(box);
+    const available = box.clientWidth - parseFloat(boxStyle.paddingLeft) - parseFloat(boxStyle.paddingRight);
+    const measured = element.scrollWidth;
+    const ratio = measured && available > 0 ? Math.min(1, available / measured) : 1;
+    element.style.transform = `scaleX(${ratio})`;
+  }
+  function fitHeadline() { fitWidthOnly(headline, strip); }
+  function fitLabel() { fitWidthOnly(label, labelBox); }
+  function refreshGeometry() {
+    fitFrame();
+    fitLabel();
+    if (headline.textContent) fitHeadline();
+  }
+  refreshGeometry();
+  window.addEventListener('resize', refreshGeometry);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshGeometry);
   function show(item) {
     active = true;
     remember(item.id);
@@ -95,6 +117,7 @@
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
         label.textContent = data.label;
+        fitLabel();
         lastPayload = raw;
         for (const item of data.items) offer(item);
       } catch (_) {
