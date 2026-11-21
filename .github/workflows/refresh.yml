@@ -1,0 +1,90 @@
+name: Resource refresh
+on:
+  schedule:
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
+  workflow_dispatch:
+    inputs:
+      task:
+        description: 'Select operation'
+        required: true
+        default: 'live'
+        type: choice
+        options: [live, sample_a, sample_b]
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: refresh-renderer
+  cancel-in-progress: false
+jobs:
+  update-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify settings
+        env:
+          VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}
+          VIEW_LABEL: ${{ secrets.VIEW_LABEL }}
+        run: |
+          if [ "${#VIEW_PASSPHRASE}" -lt 32 ] || [ "${#VIEW_LABEL}" -lt 2 ]; then
+            echo '::error::Missing required secrets.'
+            exit 1
+          fi
+      - name: Check module behavior
+        run: python -m unittest discover -s runtime/tests -v
+      - name: Restore state
+        env:
+          VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}
+          VIEW_LABEL: ${{ secrets.VIEW_LABEL }}
+        run: node runtime/scripts/secure_payload.mjs restore
+      - name: Refresh runtime
+        env:
+          TASK: ${{ inputs.task || 'live' }}
+        run: |
+          case "$TASK" in
+            sample_a) mode=test_politics ;;
+            sample_b) mode=test_earthquake ;;
+            live) mode=live ;;
+            *) echo 'Unknown task'; exit 1 ;;
+          esac
+          python runtime/collector.py --mode "$mode"
+      - name: Publish encrypted payload
+        env:
+          VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}
+          VIEW_LABEL: ${{ secrets.VIEW_LABEL }}
+        run: node runtime/scripts/secure_payload.mjs publish
+      - name: Commit encrypted state
+        id: state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add runtime/data/seen.json runtime/data/payload.enc.json
+          if git diff --cached --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+          else
+            git commit -m 'chore: update state'
+            git push
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Configure Pages
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: actions/configure-pages@v5
+      - name: Upload deployable assets
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./runtime/_deploy
+      - name: Deploy
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+        id: deploy
+        uses: actions/deploy-pages@v4
