@@ -477,6 +477,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             "id": stable_id(source, link, title),
             "kind": "politics",
             "title": rewritten,
+            "source_title": title,
             "source": source,
             "published_at": iso(published),
             "link": link,
@@ -629,7 +630,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # Optional AI desk editor. No API key means deterministic rules only.
         # If the API fails, pause new *political* headlines for this refresh
         # rather than accidentally broadcasting unreviewed commentary.
-        ai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        ai_key = os.environ.get("GEMINI_API_KEY", "").strip()
         ai_results = {}
         if ai_key:
             screening_input = []
@@ -645,14 +646,14 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             try:
                 ai_results = screen_news(
                     screening_input, api_key=ai_key,
-                    model=os.environ.get("OPENAI_NEWS_MODEL", "gpt-5.6-luna")
+                    model=os.environ.get("GEMINI_NEWS_MODEL", "gemini-2.5-flash-lite")
                 )
                 print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
             except Exception as exc:
                 failures.append("AI screening unavailable; political news postponed")
                 print(f"AI screening unavailable ({type(exc).__name__}); political items deferred")
         else:
-            print("AI screening: disabled (no OPENAI_API_KEY); rule-based fallback")
+            print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
         politics_added = 0
         duplicate_count = 0
         for item in candidate:

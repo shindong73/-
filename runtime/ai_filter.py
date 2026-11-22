@@ -1,6 +1,6 @@
 """Optional LLM editorial gate for verified South Korean breaking-news headlines.
 
-The collector remains operational without OPENAI_API_KEY, using its deterministic
+The collector remains operational without GEMINI_API_KEY, using its deterministic
 filters. With a key, this gate verifies whether an already selected headline
 reports a substantive *event* rather than a political quotation or reaction.
 The gate cannot verify real-world truth from an RSS headline alone.
@@ -8,10 +8,11 @@ The gate cannot verify real-world truth from an RSS headline alone.
 from __future__ import annotations
 
 import json
+import re
 from urllib.request import Request, urlopen
 
-ENDPOINT = "https://api.openai.com/v1/responses"
-DEFAULT_MODEL = "gpt-5.6-luna"
+ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
+DEFAULT_MODEL = "gemini-2.5-flash-lite"
 
 INSTRUCTIONS = """You are a careful Korean TV breaking-news desk editor.
 Decide whether each supplied item is an important, concrete South Korean
@@ -62,69 +63,72 @@ SCHEMA = {
 
 
 def parse_decisions(result: dict, expected_ids: list[str]) -> dict[str, bool]:
-    """Fail closed on partial, malformed, duplicated, or contradictory output."""
-    if result.get("status") != "completed":
-        raise ValueError("AI response did not complete")
-    text_parts = [
-        block.get("text", "")
-        for message in result.get("output", [])
-        if message.get("type") == "message"
-        for block in message.get("content", [])
-        if block.get("type") == "output_text"
-    ]
-    payload = json.loads("".join(text_parts))
-    rows = payload["items"]
+    """Validate an entire Gemini batch; uncertain/incomplete output is rejected."""
+    if not isinstance(result, dict) or result.get("promptFeedback", {}).get("blockReason"):
+        raise ValueError("Blocked or invalid Gemini response")
+    candidates = result.get("candidates", [])
+    if not isinstance(candidates, list) or len(candidates) != 1:
+        raise ValueError("Expected exactly one Gemini candidate")
+    candidate = candidates[0]
+    if candidate.get("finishReason") != "STOP":
+        raise ValueError("Gemini did not finish response")
+    parts = candidate.get("content", {}).get("parts", [])
+    if not isinstance(parts, list):
+        raise ValueError("Invalid Gemini parts")
+    content = "".join(
+        p["text"] for p in parts
+        if isinstance(p, dict) and isinstance(p.get("text"), str) and not p.get("thought")
+    )
+    rows = json.loads(content).get("items")
     if not isinstance(rows, list) or len(rows) != len(expected_ids):
-        raise ValueError("AI output count mismatch")
-    out = {}
+        raise ValueError("Gemini returned missing or additional decisions")
+    decisions = {}
     for row in rows:
         if (not isinstance(row, dict)
                 or not isinstance(row.get("id"), str)
                 or not isinstance(row.get("approve"), bool)
-                or row["id"] in out):
-            raise ValueError("Malformed or duplicate AI decision")
-        out[row["id"]] = row["approve"]
-    if set(out) != set(expected_ids):
-        raise ValueError("AI output IDs mismatch")
-    return out
+                or not isinstance(row.get("reason"), str)
+                or row["id"] in decisions):
+            raise ValueError("Malformed or duplicate Gemini decision")
+        decisions[row["id"]] = row["approve"]
+    if set(decisions) != set(expected_ids):
+        raise ValueError("Gemini invented or omitted article IDs")
+    return decisions
 
 
 def screen_news(items: list[dict], *, api_key: str, model: str = DEFAULT_MODEL) -> dict[str, bool]:
-    """Inspect up to 24 already-vetted headlines in one inexpensive API call."""
+    """Send at most 24 verified publisher titles through Gemini in one request."""
     if not items:
         return {}
     if not api_key.strip():
-        raise ValueError("OPENAI_API_KEY must be set for AI screening")
+        raise ValueError("GEMINI_API_KEY is missing")
     if len(items) > 24:
-        raise ValueError("Too many candidate items in one AI request")
-    request = {
-        "model": model,
-        "store": False,
-        "max_output_tokens": 1200,
-        "instructions": INSTRUCTIONS,
-        "input": json.dumps(
-            [{"id": x["id"], "title": x["title"], "source": x["source"]}
-             for x in items],
-            ensure_ascii=False
-        ),
-        "text": {
-            "format": {
-                "type": "json_schema",
-                "name": "breaking_news_gate",
-                "strict": True,
-                "schema": SCHEMA
-            }
+        raise ValueError("Gemini screening batch too large")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{3,100}", model):
+        raise ValueError("Invalid Gemini model identifier")
+    expected_ids = [x["id"] for x in items]
+    if len(set(expected_ids)) != len(expected_ids):
+        raise ValueError("Duplicated Gemini article IDs")
+    body = {
+        "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
+        "contents": [{"role": "user", "parts": [{"text": json.dumps([
+            {"id": x["id"], "title": x.get("source_title") or x["title"], "source": x["source"]}
+            for x in items
+        ], ensure_ascii=False)}]}],
+        "generationConfig": {
+            "candidateCount": 1,
+            "temperature": 0,
+            "maxOutputTokens": 2048,
+            "responseMimeType": "application/json",
+            "responseJsonSchema": SCHEMA
         }
     }
     req = Request(
-        ENDPOINT,
-        data=json.dumps(request, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "Authorization": "Bearer " + api_key,
-            "Content-Type": "application/json"
-        },
+        f"{ENDPOINT}/{model}:generateContent",
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
         method="POST"
     )
     with urlopen(req, timeout=22) as response:
         result = json.load(response)
-    return parse_decisions(result, [x["id"] for x in items])
+    return parse_decisions(result, expected_ids)
