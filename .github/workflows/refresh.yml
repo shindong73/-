@@ -83,11 +83,22 @@ jobs:
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
             git commit -m 'chore: update state'
-            if ! git push; then
-              echo 'Repository changed during collection; retrying push after rebase.'
+            # Encrypted state is generated at every run. Another run may push
+            # between checkout and publication, so rebase favoring our newly
+            # generated state and retry rather than leaving a conflict.
+            pushed=false
+            for attempt in 1 2 3; do
+              if git push; then
+                pushed=true
+                break
+              fi
+              echo "Concurrent push detected; retry $attempt/3"
               git fetch origin main
-              git rebase origin/main
-              git push
+              git rebase -X theirs origin/main
+            done
+            if [ "$pushed" != true ]; then
+              echo '::error::Unable to push state after retries'
+              exit 1
             fi
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
@@ -99,6 +110,9 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./runtime/_deploy
+      - name: Wait for Pages artifact indexing
+        if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+        run: sleep 8
       - name: Deploy
         if: steps.state.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         id: deploy
