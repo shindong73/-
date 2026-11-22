@@ -79,6 +79,31 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '정부가 국정 현안 발표')
         self.assertEqual(collector.rewrite_headline('[속보] "기밀 주장" 국회 발표'), '"기밀 주장" 국회 발표')
         self.assertEqual(collector.rewrite_headline('[속보] 원형 변경이 어려운 문장'), '원형 변경이 어려운 문장')
+        self.assertEqual(
+            collector.rewrite_headline("[긴급] 최교진, '수능 대혼란' 책임지고 사의…'준비 미흡 비판 통감'"),
+            "최교진 사의 표명…수능 대혼란 책임"
+        )
+        self.assertEqual(
+            collector.rewrite_headline('민주 "연내 조희대 탄핵 추진…한덕수 판결 내용은 사유에 미포함"'),
+            "민주당, 조희대 탄핵 연내 추진…한덕수 판결 내용은 사유에서 제외"
+        )
+        self.assertEqual(
+            collector.rewrite_headline('국민의힘 “코스피 급락 ‘블랙먼데이’ 우려…긴급 대응 조치 준비해야”'),
+            "국민의힘, 코스피 급락 블랙먼데이 우려…긴급 대응 촉구"
+        )
+        self.assertEqual(
+            collector.rewrite_headline("경제부총리 오늘 긴급 F4회의 소집…국내 증시 안정 대책 논의"),
+            "경제부총리 긴급 F4회의 소집…국내 증시 안정 방안 논의"
+        )
+        self.assertEqual(
+            collector.rewrite_headline('최민희 "확인되지 않은 의혹"'),
+            '최민희 "확인되지 않은 의혹"'
+        )
+        self.assertEqual(
+            collector.rewrite_headline('[속보] 국회, 법안 부결'),
+            "국회가 법안 부결"
+        )
+
 
     def test_rss_parsing_verified_source(self):
         source='''<rss><channel><item><title>[속보] 국회, 주요 법안 통과 - KBS 뉴스</title><source>KBS 뉴스</source>

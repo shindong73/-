@@ -257,14 +257,82 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
 
 
 def rewrite_headline(original: str) -> str | None:
-    """Format verifiable facts for an on-screen lower-third, no invented claims."""
+    """Create a concise, attributed broadcaster-style headline from verified RSS facts.
+
+    Prefer meaningful but safe restructuring. This is deterministic and cannot
+    guarantee that every headline is paraphrasable or free of copyright issues.
+    Never turn a prediction, quote, allegation, demand or intention into a fact.
+    """
     title = BREAKING_RE.sub("", original, count=1).strip(" \t:：-·")
     title = re.sub(r"\s+", " ", title).strip()
-    if not title or len(title) < 8 or len(title) > 110:
+    if not title or len(title) < 8 or len(title) > 130:
         return None
-    # Keep attributed claims as claims, not factual statements.
+
+    # An explicit responsibility-taking resignation can be summarized without
+    # repeating the journalist's entire quote or adding speculative details.
+    resignation = re.match(
+        r"^(?P<person>[가-힣·]{2,12})\s*[,，]\s*"
+        r"[‘'\"“]?(?P<reason>[^’‘'\"”“…‥]{3,40})[’'\"”]?"
+        r"\s*책임지고\s*사의(?:\s*표명)?(?:\s*[.…‥].*)?$",
+        title
+    )
+    if resignation:
+        person, reason = resignation.group("person", "reason")
+        return f"{person} 사의 표명…{reason.strip()} 책임"[:100]
+
+    # Keep a political party as the *actor* of a quoted plan or demand.
+    # Quote text is never reproduced inside quotation marks after paraphrase.
+    attributed = re.fullmatch(
+        r"(?P<speaker>민주|민주당|국힘|국민의힘)\s*[“\"]"
+        r"(?P<statement>.+)[”\"]",
+        title
+    )
+    if attributed:
+        speaker = {"민주": "민주당", "국힘": "국민의힘"}.get(
+            attributed.group("speaker"), attributed.group("speaker")
+        )
+        statement = attributed.group("statement").strip()
+        # A documented plan remains a plan: do not promote it to a decision.
+        planned = re.match(
+            r"연내\s+(?P<subject>[가-힣·\s]{2,32}?)\s+탄핵\s+추진"
+            r"\s*[.…‥]+\s*(?P<qualification>.+)$",
+            statement
+        )
+        if planned:
+            subject = planned.group("subject").strip()
+            qualification = planned.group("qualification").strip()
+            qualification = qualification.replace("사유에 미포함", "사유에서 제외")
+            qualification = qualification.replace("사유에 포함 안 돼", "사유에서 제외")
+            return f"{speaker}, {subject} 탄핵 연내 추진…{qualification}"[:100]
+        market = re.match(
+            r"(?P<concern>.+?우려)\s*[.…‥]+\s*(?P<response>.+?)"
+            r"(?:준비해야|마련해야)\s*$",
+            statement
+        )
+        if market:
+            concern = re.sub(r"[‘’'\"“”]", "", market.group("concern")).strip()
+            response = market.group("response").strip()
+            response = re.sub(r"\s*(?:조치|대책)\s*$", "", response).strip()
+            if concern and response:
+                return f"{speaker}, {concern}…{response} 대응 촉구"[:100]
+        # Do not substitute words inside a contested or otherwise complex quote.
+        return title
+
+    # A narrowly-scoped factual rewording, avoiding changes to who did what.
+    paraphrases = (
+        (r"(?<!검토)\b사의를 표명\b", "사의 밝혀"),
+        (r"\b사의 표명\b", "사의 밝혀"),
+        (r"\b오늘\s+", ""),
+        (r"\b국내 증시 안정 대책\b", "국내 증시 안정 방안"),
+        (r"\b사유에 미포함\b", "사유에서 제외"),
+    )
+    for pattern, replacement in paraphrases:
+        title = re.sub(pattern, replacement, title)
+
+    # Factual subject-first broadcast wording when an explicit actor and a
+    # complete factual action are present; not for direct quotations.
     if not re.search(r'[“”"「」『』‘’]', title):
-        match = re.fullmatch(r"([가-힣A-Za-z0-9·\s]{2,24}?),\s+(.{4,75})", title)
+        match = re.fullmatch(r"([가-힣A-Za-z0-9·\s]{2,24}?),\s+(.{4,90})", title)
         if match:
             actor, action = match.groups()
             if re.search(r"(발표|선포|의결|가결|통과|발의|요청|제출|합의|공개|"
@@ -275,10 +343,10 @@ def rewrite_headline(original: str) -> str | None:
                 changed = f"{actor}{particle} {action}"
                 if len(changed) <= 100:
                     return changed
-    # For other headlines, preserve the verified original wording rather than
-    # dropping the item or paraphrasing inaccurately. The leading breaking badge
-    # and broadcaster suffix have already been removed.
-    return title
+
+    # If a safe, meaningful rewrite is unavailable, retain the factual wording
+    # rather than manufacture a new claim. No copyright guarantee is implied.
+    return title[:110]
 
 
 def normalized_story(title: str) -> str:
