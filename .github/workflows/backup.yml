@@ -1,0 +1,13 @@
+name: Independent feed check
+on:
+  schedule:
+    - cron: '8,18,28,38,48,58 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  run-feed:
+    uses: ./.github/workflows/refresh.yml
+    secrets: inherit

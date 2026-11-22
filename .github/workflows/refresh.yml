@@ -3,10 +3,15 @@ on:
   push:
     branches: [main]
     paths:
-      - 'runtime/**'
+      - 'runtime/collector.py'
+      - 'runtime/config.json'
+      - 'runtime/web/**'
+      - 'runtime/scripts/**'
+      - 'runtime/tests/**'
       - '.github/workflows/refresh.yml'
   schedule:
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
+    - cron: '3,13,23,33,43,53 * * * *'
+  workflow_call:
   workflow_dispatch:
     inputs:
       task:
