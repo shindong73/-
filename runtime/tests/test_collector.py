@@ -56,6 +56,9 @@ class CollectorTests(unittest.TestCase):
             "이스라엘 정부 가자지구 공격 승인",
             "북한 김정은 국정 운영 개편",
             "이재명 대통령 미국 외교 정상회담",
+            "남아공 대통령 선거 결과 발표",
+            "에티오피아 정부 총리 임명",
+            "페루 정부 대통령 사임",
         ]
         for title in foreign:
             with self.subTest(title=title):

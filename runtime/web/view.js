@@ -94,9 +94,11 @@
   // Defense in depth: old encrypted queues must not replay foreign headlines.
   // The server applies a more comprehensive domestic-only rule before selection.
   const foreignHeadline = /FBI|CIA|트럼프|바이든|푸틴|시진핑|젤렌스키|마크롱|다카이치|미국|미\s*연방|美\s*(?:대선|정부|대통령|공화|민주|의회|연방|법원|증시)|중국|中\s*(?:정부|당국|공산당|주석)|일본|日\s*(?:총리|정부|여당|야당)|러시아|우크라이나|대만|홍콩|북한|평양|김정은|영국|프랑스|독일|이탈리아|스페인|유럽|캐나다|호주|인도네시아|베트남|태국|필리핀|싱가포르|인도|파키스탄|이스라엘|팔레스타인|가자지구|이란|이라크|시리아|중동|멕시코|브라질|아르헨티나|아프리카|남미|국제\s*(?:뉴스|정세|사회|회의|기구|분쟁)|해외|외신|정상회담|외교장관|국제사회|유엔|미군|\b(?:EU|NATO|G7|G20)\b/i;
+  // Do not infer Korea solely from generic words such as president or government.
+  const domesticHeadline = /대한민국|한국|국내|우리나라|이재명|이\s*대통령|李\s*대통령|尹\s*대통령|윤석열|민주당|국민의힘|국힘|조국혁신당|정청래|김민석|조희대|추미애|국회|대통령실|청와대|국무회의|국무총리|국정|헌법재판소|헌재|대법원|검찰|특검|지방선거|수능|교육부|서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|경북|경남|전북|전남|강원|제주|여의도|용산|국회의원|행정안전부|기획재정부|금융위원회|민생|법무부/i;
   function allowBroadcast(item) {
     return item && (item.kind !== 'politics' ||
-      (typeof item.title === 'string' && !foreignHeadline.test(item.title)));
+      (typeof item.title === 'string' && domesticHeadline.test(item.title) && !foreignHeadline.test(item.title)));
   }
   function show(item) {
     if (!allowBroadcast(item)) {
