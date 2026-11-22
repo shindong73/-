@@ -468,8 +468,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "earthquake_region": {"minlatitude": 31, "maxlatitude": 44,
                               "minlongitude": 123, "maxlongitude": 133},
         "active_window_minutes": 16,
-        "max_news_per_run": 1,
-        "min_regular_news_interval_minutes": 12,
+        "max_news_per_run": 3,
     }
     settings = {**defaults, **settings}
     current = now_utc()
@@ -496,17 +495,6 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     and not (old.get("is_breaking") or important_politics_news(old.get("title", "")))):
                 continue
             recent.append(old)
-    # Strip older routine headlines from the previous flood. Keep emergency
-    # government personnel events and earthquakes even during the cooldown.
-    compact = []
-    routine = 0
-    for old in sorted(recent, key=lambda x: x.get("detected_at") or x.get("published_at", ""), reverse=True):
-        if old.get("kind") == "politics" and not confirmed_personnel_news(old.get("title", "")):
-            if routine >= 1:
-                continue
-            routine += 1
-        compact.append(old)
-    recent = compact
     new = []
     failures = []
     if mode.startswith("test_"):
@@ -547,14 +535,6 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         ), reverse=True)
         politics_added = 0
         duplicate_count = 0
-        rate_limited = 0
-        last_routine = max(
-            (when for x in recent
-             if x.get("kind") == "politics"
-             and not confirmed_personnel_news(x.get("title", ""))
-             if (when := parse_date(x.get("detected_at") or x.get("published_at")))),
-            default=None
-        )
         for item in candidate:
             if item["id"] in seen:
                 continue
@@ -568,26 +548,16 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 duplicate_count += 1
                 continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
-                # Avoid filling the next refresh with soft backlog; urgent
-                # personnel events remain eligible for the next run.
-                if not confirmed_personnel_news(item["title"]):
-                    seen[item["id"]] = iso(current)
-                continue
-            if (item["kind"] == "politics" and not confirmed_personnel_news(item["title"])
-                    and last_routine and current - last_routine <
-                    timedelta(minutes=settings["min_regular_news_interval_minutes"])):
-                seen[item["id"]] = iso(current)
-                rate_limited += 1
+                # Do not consume overflowed major breaking events. They will
+                # be picked up by the next RSS check instead of silently lost.
                 continue
             seen[item["id"]] = iso(current)
             if item["kind"] == "politics":
                 politics_added += 1
-                if not confirmed_personnel_news(item["title"]):
-                    last_routine = current
                 history.append({"title": item["title"], "published_at": item["published_at"]})
             if state.get("initialized"):
                 new.append({**item, "detected_at": iso(current)})
-        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count} rate_limited={rate_limited}")
+        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
         state["initialized"] = True
     else:
         raise ValueError(f"Unknown mode: {mode}")

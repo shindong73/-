@@ -10,6 +10,5 @@
     "maxlongitude": 133
   },
   "active_window_minutes": 16,
-  "max_news_per_run": 1,
-  "min_regular_news_interval_minutes": 12
+  "max_news_per_run": 3
 }

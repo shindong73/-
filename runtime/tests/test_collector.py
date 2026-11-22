@@ -266,33 +266,36 @@ class CollectorTests(unittest.TestCase):
         self.assertTrue(result[0]["is_breaking"])
         self.assertEqual(result[0]["title"],"최교진 교육부 장관 사의 표명")
 
-    def test_ticker_cooldown_but_personnel_breaking_still_passes(self):
+    def test_major_breaking_not_rate_limited_and_overflow_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
-            cfg=root/'cfg.json';cfg.write_text('{"max_news_per_run":1,"min_regular_news_interval_minutes":12}',encoding='utf8')
-            store=root/'store.json';store.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
+            cfg=root/'cfg.json'
+            cfg.write_text('{"max_news_per_run":2}',encoding='utf8')
+            store=root/'store.json'
+            store.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
             out=root/'private.json'
             base={'kind':'politics','source':'KBS','published_at':collector.iso(T),
-                  'is_test':False,'is_breaking':False,'link':'https://news.google.com/1'}
+                  'is_test':False,'is_breaking':True,'link':'https://news.google.com/1'}
             a={**base,'id':'a','title':'국회 예산안 통과'}
-            b={**base,'id':'b','title':'국회 별도 법률 의결',
-               'published_at':collector.iso(T+collector.timedelta(minutes=1))}
-            urgent={**base,'id':'c','title':'최교진 교육부 장관 사의 표명',
-                    'published_at':collector.iso(T+collector.timedelta(minutes=2))}
+            b={**base,'id':'b','title':'[속보] 헌재 주요 사건 선고',
+               'link':'https://news.google.com/2'}
+            c={**base,'id':'c','title':'최교진 교육부 장관 사의 표명',
+               'link':'https://news.google.com/3'}
             with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',store), \
-                 patch.object(collector,'OUT_PATH',out),patch.object(collector,'fetch_quakes',return_value=[]):
+                 patch.object(collector,'OUT_PATH',out),patch.object(collector,'fetch_quakes',return_value=[]), \
+                 patch.object(collector,'same_story',return_value=False):
                 with patch.object(collector,'now_utc',return_value=T), \
-                     patch.object(collector,'fetch_rss',return_value=[a]):
+                     patch.object(collector,'fetch_rss',return_value=[a,b,c]):
                     first=collector.run('live')
-                self.assertIn('a',[x['id'] for x in first['items']])
-                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=2)), \
-                     patch.object(collector,'fetch_rss',return_value=[b]):
+                self.assertEqual(len(first['items']),2)
+                persisted=json.loads(store.read_text(encoding='utf8'))['seen']
+                self.assertEqual(len(persisted),2)
+                self.assertTrue(any(x['id']=='c' for x in first['items']))
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=1)), \
+                     patch.object(collector,'fetch_rss',return_value=[a,b,c]):
                     second=collector.run('live')
-                self.assertNotIn('b',[x['id'] for x in second['items']])
-                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=3)), \
-                     patch.object(collector,'fetch_rss',return_value=[urgent]):
-                    third=collector.run('live')
-                self.assertIn('c',[x['id'] for x in third['items']])
+                self.assertEqual(set(x['id'] for x in second['items']), {'a','b','c'})
+                self.assertEqual(len(json.loads(store.read_text(encoding='utf8'))['seen']),3)
 
     def test_direct_jtbc_source_validation(self):
         source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
