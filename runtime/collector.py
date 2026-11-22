@@ -106,7 +106,7 @@ def parse_date(s: str | None) -> datetime | None:
             return None
 
 
-def get_url(url: str, *, attempts: int = 2) -> bytes:
+def get_url(url: str, *, attempts: int = 2, timeout: int = 12) -> bytes:
     last_error = None
     for n in range(attempts):
         try:
@@ -114,7 +114,7 @@ def get_url(url: str, *, attempts: int = 2) -> bytes:
                 "User-Agent": "OBS-Korean-Breaking-Alerts/1.0 (+GitHub Pages; personal news monitor)",
                 "Accept": "application/xml,text/xml,application/rss+xml,application/json,*/*",
             })
-            with urlopen(req, timeout=18) as response:
+            with urlopen(req, timeout=timeout) as response:
                 return response.read(4_000_000)
         except Exception as exc:
             last_error = exc
@@ -232,7 +232,10 @@ def stable_id(kind: str, link: str, title: str) -> str:
 
 def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[dict]:
     optional_direct = url in {JTBC_BACKUP, NEWS_FEEDS["JTBC"], MBC_DIRECT_POLITICS_RSS}
-    root = ET.fromstring(get_url(url, attempts=1 if optional_direct else 2))
+    root = ET.fromstring(get_url(
+        url, attempts=1 if optional_direct else 2,
+        timeout=6 if optional_direct else 12
+    ))
     items = []
     counters = {"raw": 0, "politics": 0, "recent": 0, "source": 0}
     candidates = root.findall(".//item") or root.findall(".//{*}entry")

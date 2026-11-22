@@ -83,7 +83,12 @@ jobs:
             echo 'changed=false' >> "$GITHUB_OUTPUT"
           else
             git commit -m 'chore: update state'
-            git push
+            if ! git push; then
+              echo 'Repository changed during collection; retrying push after rebase.'
+              git fetch origin main
+              git rebase origin/main
+              git push
+            fi
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           fi
       - name: Configure Pages
