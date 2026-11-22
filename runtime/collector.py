@@ -482,6 +482,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
     elif mode == "live":
+        news = []
         # Query independent sources in parallel: a failing RSS URL cannot
         # delay all other sources. Each original publisher is still verified.
         requests = [(source, url) for source, url in NEWS_FEEDS.items()]
