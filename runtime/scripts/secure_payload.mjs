@@ -47,13 +47,22 @@ if (command === 'restore') {
   const plain = existsSync(ENCRYPTED) ? decrypt(readFileSync(ENCRYPTED, 'utf8')) : JSON.stringify({items:[]});
   const data = JSON.parse(plain);
   if (!Array.isArray(data.items)) throw new Error('Invalid prior feed');
-  writeFileSync(PRIVATE, JSON.stringify({items:data.items,history:Array.isArray(data.history)?data.history:[]}) + '\n');
+  writeFileSync(PRIVATE, JSON.stringify({
+    items:data.items,
+    history:Array.isArray(data.history)?data.history:[],
+    delivery_log:Array.isArray(data.delivery_log)?data.delivery_log:[]
+  }) + '\n');
   console.log('Private state restored.');
 } else if (command === 'publish') {
   if (!existsSync(PRIVATE)) throw new Error('Run restore/collect first');
   const current = JSON.parse(readFileSync(PRIVATE, 'utf8'));
   if (!Array.isArray(current.items)) throw new Error('Invalid current feed');
-  const safe = JSON.stringify({label:process.env.VIEW_LABEL || '',items:current.items,history:Array.isArray(current.history)?current.history:[]});
+  const safe = JSON.stringify({
+    label:process.env.VIEW_LABEL || '',
+    items:current.items,
+    history:Array.isArray(current.history)?current.history:[],
+    delivery_log:Array.isArray(current.delivery_log)?current.delivery_log:[]
+  });
   let unchanged = false;
   if (existsSync(ENCRYPTED)) {
     // Fails closed on wrong secret and prevents unnecessary commits.
@@ -66,7 +75,7 @@ if (command === 'restore') {
   rmSync(PRIVATE, {force:true});
   rmSync(DEPLOY, {recursive:true,force:true});
   mkdirSync(join(DEPLOY,'data'), {recursive:true});
-  for (const file of ['view.html','view.js','style.css','index.html']) {
+  for (const file of ['view.html','view.js','style.css','index.html','history.html','history.js','history.css']) {
     copyFileSync(join(root,'web',file),join(DEPLOY,file));
   }
   copyFileSync(ENCRYPTED,join(DEPLOY,'data','payload.enc.json'));

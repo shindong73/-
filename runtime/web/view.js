@@ -12,6 +12,7 @@
   // The fragment is never sent to the web server; keep this URL secret.
   const password = new URLSearchParams(location.hash.slice(1)).get('key') || '';
   const STORAGE_KEY = 'view-state-v1';
+  const DISPLAY_LOG_KEY = 'view-displayed-headlines-v1';
   const queue = [];
   const queued = new Set();
   let active = false;
@@ -106,6 +107,18 @@
     }
     active = true;
     remember(item.id);
+    if (!item.is_test) {
+      try {
+        const displayed = JSON.parse(localStorage.getItem(DISPLAY_LOG_KEY) || '[]');
+        const log = Array.isArray(displayed) ? displayed : [];
+        log.push({
+          id:item.id, title:item.title, source:item.source || '',
+          kind:item.kind, started_at:new Date().toISOString(),
+          planned_duration_seconds:DISPLAY_MS / 1000
+        });
+        localStorage.setItem(DISPLAY_LOG_KEY, JSON.stringify(log.slice(-500)));
+      } catch (_) { /* Never interrupt an overlay if device storage is disabled. */ }
+    }
     headline.textContent = item.title;
     fitHeadline();
     bar.classList.remove('closing', 'visible');

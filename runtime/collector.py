@@ -495,6 +495,36 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
+    # Encrypted history of actual news selected for overlay delivery.
+    # This confirms publication to the viewer feed, NOT OBS output on-air.
+    previous_log = prev.get("delivery_log", [])
+    if not isinstance(previous_log, list):
+        previous_log = []
+    delivery_log = []
+    for entry in previous_log:
+        if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
+            continue
+        date = parse_date(entry.get("detected_at") or entry.get("published_at"))
+        if date and current - timedelta(days=30) <= date <= current + timedelta(minutes=5):
+            if entry.get("kind") != "politics" or political_ok(entry.get("title", ""), block_negative=True):
+                delivery_log.append(entry)
+    logged_ids = {x["id"] for x in delivery_log}
+    for item in new:
+        if item.get("is_test") or item["id"] in logged_ids:
+            continue
+        delivery_log.append({
+            "id": item["id"],
+            "kind": item["kind"],
+            "title": item["title"],
+            "source": item["source"],
+            "published_at": item["published_at"],
+            "detected_at": item.get("detected_at") or iso(current),
+            "link": item.get("link", ""),
+            "display_seconds": 30
+        })
+        logged_ids.add(item["id"])
+    delivery_log = delivery_log[-500:]
+
     # Prevent simultaneous updates from displaying duplicates; newest first.
     combined = {x["id"]: x for x in [*recent, *new]}
     active = sorted(combined.values(), key=lambda x: x.get("detected_at") or x["published_at"], reverse=True)[:20]
@@ -511,10 +541,12 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "display_seconds": 30,
         "items": active,
         "history": history[-300:],
+        "delivery_log": delivery_log,
         "last_check_errors": failures,
         "notice": "선별 송출 서비스이며 전체 속보 목록이나 공적 경보 시스템이 아닙니다.",
     }
-    if active != old_items or output["history"] != old_history or not OUT_PATH.exists():
+    if (active != old_items or output["history"] != old_history or
+            delivery_log != previous_log or not OUT_PATH.exists()):
         write_json(OUT_PATH, output)
     print(f"Mode {mode}. Live items: {len(active)}; new items: {len(new)}; failures: {len(failures)}")
     for failure in failures:

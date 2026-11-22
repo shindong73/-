@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <title>Record Viewer</title>
+  <link rel="stylesheet" href="./history.css">
+  <script src="./history.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <p class="eyebrow">PRIVATE · DECRYPTED IN BROWSER</p>
+      <h1>뉴스속보 기록</h1>
+      <p class="hint">실제 뉴스만 표시합니다. 수동 테스트는 기록에서 제외합니다.</p>
+    </header>
+    <section class="summary">
+      <div><span class="muted">방송용 데이터 전송 후보</span><strong id="sent-count">—</strong></div>
+      <div><span class="muted">이 브라우저의 표시 시작</span><strong id="shown-count">—</strong></div>
+      <div><span class="muted">마지막 확인</span><strong id="checked-at">—</strong></div>
+    </section>
+    <p class="notice">‘전송 후보’는 암호화된 OBS용 데이터에 포함된 기사입니다. 실제 시청자 화면에 나갔다는 증명은 아닙니다. ‘표시 시작’은 이 브라우저 환경의 기록이며 OBS 브라우저 소스와 일반 Chrome은 기록이 공유되지 않을 수 있습니다.</p>
+    <div class="toolbar">
+      <label for="query">헤드라인 검색</label>
+      <input id="query" placeholder="언론사 또는 제목 검색" autocomplete="off">
+      <button id="refresh" type="button">새로고침</button>
+      <button id="export" type="button" disabled>CSV 저장</button>
+    </div>
+    <h2>서버에서 선별된 실제 뉴스</h2>
+    <p id="status" class="muted">암호화된 데이터 확인 중…</p>
+    <div class="table-wrap">
+      <table><thead><tr><th>수집 시각 (KST)</th><th>언론사</th><th>헤드라인</th><th>원문</th></tr></thead><tbody id="sent"></tbody></table>
+    </div>
+    <h2>현재 브라우저에서 표시 시작한 실제 뉴스</h2>
+    <div class="table-wrap">
+      <table><thead><tr><th>시작 시각 (KST)</th><th>언론사</th><th>헤드라인</th><th>예정 시간</th></tr></thead><tbody id="shown"></tbody></table>
+    </div>
+  </main>
+</body>
+</html>
