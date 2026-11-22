@@ -186,6 +186,15 @@
         label.textContent = data.label;
         fitLabel();
         lastPayload = raw;
+        // Latest feed is authoritative: abandon articles removed by the
+        // tighter editorial policy before they appear in OBS.
+        const allowed = new Set(data.items.filter(x => x && typeof x.id === 'string').map(x => x.id));
+        for (let i = queue.length - 1; i >= 0; i--) {
+          if (!allowed.has(queue[i].id)) {
+            queued.delete(queue[i].id);
+            queue.splice(i, 1);
+          }
+        }
         for (const item of data.items) offer(item);
       } catch (_) {
         // Deliberately no visible error or plaintext fallback.

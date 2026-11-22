@@ -73,7 +73,7 @@ FOCUSED_FEEDS = [
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 # Select verified recent politics articles with or without a breaking badge.
-BREAKING_RE = re.compile(r"(?:\[\s*(?:긴급\s*)?속보\s*\]|\(\s*속보\s*\)|【\s*속보\s*】|^\s*속보\s*[:：])", re.I)
+BREAKING_RE = re.compile(r"(?:\[\s*(?:(?:긴급\s*)?속보|긴급)\s*\]|\(\s*속보\s*\)|【\s*속보\s*】|^\s*(?:속보|긴급)\s*[:：])", re.I)
 POLITICAL_RE = re.compile(
     r"대통령|대통령실|청와대|국회|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
     r"국무회의|정부|총리|장관|정당|선거|대선|총선|지방선거|의원|특검|탄핵|"
@@ -224,6 +224,19 @@ def clean_title(title: str) -> str:
     return text[:160]
 
 
+MAJOR_DECISION_RE = re.compile(
+    r"(?:국회|국무회의|헌법재판소|헌재|대법원|대통령실|선관위|정부)"
+    r".{0,45}?(?:가결|부결|의결|법안\s*통과|최종\s*확정|선고|파면|기각|발효|공포)"
+)
+
+
+def important_politics_news(title: str) -> bool:
+    # Routine visits, remarks and party reactions are not a breaking headline.
+    return bool(confirmed_personnel_news(title)
+                or BREAKING_RE.search(title)
+                or MAJOR_DECISION_RE.search(title))
+
+
 def political_ok(title: str, *, block_negative: bool) -> bool:
     if not POLITICAL_RE.search(title) or not domestic_politics_only(title):
         return False
@@ -331,7 +344,8 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
     for item in candidates:
         counters["raw"] += 1
         title = clean_title(item.findtext("title") or item.findtext("{*}title") or "")
-        if not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
+        if (not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+                or not important_politics_news(title)):
             continue
         counters["politics"] += 1
         published = parse_date(item.findtext("pubDate") or item.findtext("published") or
@@ -374,6 +388,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             "published_at": iso(published),
             "link": link,
             "is_test": False,
+            "is_breaking": bool(BREAKING_RE.search(title)),
         })
     # Counts only. Never log article headlines or broadcast labels publicly.
     youngest = min(ages_minutes) if ages_minutes else "n/a"
@@ -453,7 +468,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "earthquake_region": {"minlatitude": 31, "maxlatitude": 44,
                               "minlongitude": 123, "maxlongitude": 133},
         "active_window_minutes": 16,
-        "max_news_per_run": 3,
+        "max_news_per_run": 1,
+        "min_regular_news_interval_minutes": 12,
     }
     settings = {**defaults, **settings}
     current = now_utc()
@@ -476,7 +492,21 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # Preserve alerts for 16 minutes after discovery despite feed delays.
         if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)
                 and (old.get("kind") != "politics" or political_ok(old.get("title", ""), block_negative=True))):
+            if (old.get("kind") == "politics"
+                    and not (old.get("is_breaking") or important_politics_news(old.get("title", "")))):
+                continue
             recent.append(old)
+    # Strip older routine headlines from the previous flood. Keep emergency
+    # government personnel events and earthquakes even during the cooldown.
+    compact = []
+    routine = 0
+    for old in sorted(recent, key=lambda x: x.get("detected_at") or x.get("published_at", ""), reverse=True):
+        if old.get("kind") == "politics" and not confirmed_personnel_news(old.get("title", "")):
+            if routine >= 1:
+                continue
+            routine += 1
+        compact.append(old)
+    recent = compact
     new = []
     failures = []
     if mode.startswith("test_"):
@@ -517,6 +547,14 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         ), reverse=True)
         politics_added = 0
         duplicate_count = 0
+        rate_limited = 0
+        last_routine = max(
+            (when for x in recent
+             if x.get("kind") == "politics"
+             and not confirmed_personnel_news(x.get("title", ""))
+             if (when := parse_date(x.get("detected_at") or x.get("published_at")))),
+            default=None
+        )
         for item in candidate:
             if item["id"] in seen:
                 continue
@@ -530,15 +568,26 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 duplicate_count += 1
                 continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
-                # Retry next scheduled run rather than silently losing the story.
+                # Avoid filling the next refresh with soft backlog; urgent
+                # personnel events remain eligible for the next run.
+                if not confirmed_personnel_news(item["title"]):
+                    seen[item["id"]] = iso(current)
+                continue
+            if (item["kind"] == "politics" and not confirmed_personnel_news(item["title"])
+                    and last_routine and current - last_routine <
+                    timedelta(minutes=settings["min_regular_news_interval_minutes"])):
+                seen[item["id"]] = iso(current)
+                rate_limited += 1
                 continue
             seen[item["id"]] = iso(current)
             if item["kind"] == "politics":
                 politics_added += 1
+                if not confirmed_personnel_news(item["title"]):
+                    last_routine = current
                 history.append({"title": item["title"], "published_at": item["published_at"]})
             if state.get("initialized"):
                 new.append({**item, "detected_at": iso(current)})
-        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
+        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count} rate_limited={rate_limited}")
         state["initialized"] = True
     else:
         raise ValueError(f"Unknown mode: {mode}")

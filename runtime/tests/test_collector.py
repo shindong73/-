@@ -149,7 +149,7 @@ class CollectorTests(unittest.TestCase):
         ))
 
     def test_direct_mbc_politics_feed_and_timezone(self):
-        xml = '''<rss><channel><item><title>국회 예산안 심사 일정 발표</title>
+        xml = '''<rss><channel><item><title>[속보] 국회 예산안 심사 일정 발표</title>
         <pubDate>Sun, 22 Nov 2026 09:59:00 +0900</pubDate>
         <link>https://imnews.imbc.com/news/2026/politics/article/12345.html</link></item></channel></rss>'''
         with patch.object(collector,'get_url',return_value=xml.encode()):
@@ -245,6 +245,54 @@ class CollectorTests(unittest.TestCase):
         self.assertIn("최교진", result[0]["title"])
         self.assertEqual(result[0]["source"], "연합뉴스")
         self.assertNotIn("- 연합뉴스", result[0]["title"])
+
+    def test_only_substantive_politics_selected_for_rss(self):
+        self.assertFalse(collector.important_politics_news("최민희 국회 행사 참석"))
+        self.assertFalse(collector.important_politics_news("정청래 오늘 기자회견 참석"))
+        self.assertFalse(collector.important_politics_news("이재명 대통령 전통시장 방문"))
+        self.assertTrue(collector.important_politics_news("[긴급] 최교진 교육부 장관 사의 표명"))
+        self.assertTrue(collector.important_politics_news("국회 주요 법안 가결"))
+        rss = '''<rss><channel>
+        <item><title>정청래 오늘 기자회견 참석</title>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 GMT</pubDate>
+        <link>https://news.google.com/rss/articles/1</link><source>KBS 뉴스</source></item>
+        <item><title>[긴급] 최교진 교육부 장관 사의 표명</title>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 GMT</pubDate>
+        <link>https://news.google.com/rss/articles/2</link><source>KBS 뉴스</source></item>
+        </channel></rss>'''
+        with patch.object(collector, "get_url", return_value=rss.encode()):
+            result=collector.fetch_rss("KBS",collector.NEWS_FEEDS["KBS"],T,SETTINGS)
+        self.assertEqual(len(result),1)
+        self.assertTrue(result[0]["is_breaking"])
+        self.assertEqual(result[0]["title"],"최교진 교육부 장관 사의 표명")
+
+    def test_ticker_cooldown_but_personnel_breaking_still_passes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            cfg=root/'cfg.json';cfg.write_text('{"max_news_per_run":1,"min_regular_news_interval_minutes":12}',encoding='utf8')
+            store=root/'store.json';store.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
+            out=root/'private.json'
+            base={'kind':'politics','source':'KBS','published_at':collector.iso(T),
+                  'is_test':False,'is_breaking':False,'link':'https://news.google.com/1'}
+            a={**base,'id':'a','title':'국회 예산안 통과'}
+            b={**base,'id':'b','title':'국회 별도 법률 의결',
+               'published_at':collector.iso(T+collector.timedelta(minutes=1))}
+            urgent={**base,'id':'c','title':'최교진 교육부 장관 사의 표명',
+                    'published_at':collector.iso(T+collector.timedelta(minutes=2))}
+            with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',store), \
+                 patch.object(collector,'OUT_PATH',out),patch.object(collector,'fetch_quakes',return_value=[]):
+                with patch.object(collector,'now_utc',return_value=T), \
+                     patch.object(collector,'fetch_rss',return_value=[a]):
+                    first=collector.run('live')
+                self.assertIn('a',[x['id'] for x in first['items']])
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=2)), \
+                     patch.object(collector,'fetch_rss',return_value=[b]):
+                    second=collector.run('live')
+                self.assertNotIn('b',[x['id'] for x in second['items']])
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=3)), \
+                     patch.object(collector,'fetch_rss',return_value=[urgent]):
+                    third=collector.run('live')
+                self.assertIn('c',[x['id'] for x in third['items']])
 
     def test_direct_jtbc_source_validation(self):
         source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
