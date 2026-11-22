@@ -10,6 +10,7 @@ import argparse
 import hashlib
 from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from ai_filter import screen_news
 import html
 import json
 import os
@@ -625,6 +626,33 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
             x["published_at"]
         ), reverse=True)
+        # Optional AI desk editor. No API key means deterministic rules only.
+        # If the API fails, pause new *political* headlines for this refresh
+        # rather than accidentally broadcasting unreviewed commentary.
+        ai_key = os.environ.get("OPENAI_API_KEY", "").strip()
+        ai_results = {}
+        if ai_key:
+            screening_input = []
+            submitted = set()
+            for x in candidate:
+                if (x["kind"] != "politics" or x["id"] in seen or
+                        x["id"] in submitted):
+                    continue
+                submitted.add(x["id"])
+                screening_input.append(x)
+                if len(screening_input) >= 24:
+                    break
+            try:
+                ai_results = screen_news(
+                    screening_input, api_key=ai_key,
+                    model=os.environ.get("OPENAI_NEWS_MODEL", "gpt-5.6-luna")
+                )
+                print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
+            except Exception as exc:
+                failures.append("AI screening unavailable; political news postponed")
+                print(f"AI screening unavailable ({type(exc).__name__}); political items deferred")
+        else:
+            print("AI screening: disabled (no OPENAI_API_KEY); rule-based fallback")
         politics_added = 0
         duplicate_count = 0
         for item in candidate:
@@ -639,6 +667,13 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 seen[item["id"]] = iso(current)
                 duplicate_count += 1
                 continue
+            if ai_key and item["kind"] == "politics":
+                if item["id"] not in ai_results:
+                    # Retry next refresh if AI failed or the batch was full.
+                    continue
+                if not ai_results[item["id"]]:
+                    seen[item["id"]] = iso(current)
+                    continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
                 # Do not consume overflowed major breaking events. They will
                 # be picked up by the next RSS check instead of silently lost.

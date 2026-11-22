@@ -60,6 +60,8 @@ jobs:
       - name: Refresh runtime
         env:
           TASK: ${{ inputs.task || 'live' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENAI_NEWS_MODEL: gpt-5.6-luna
         run: |
           case "$TASK" in
             sample_a) mode=test_politics ;;
