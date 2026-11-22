@@ -336,7 +336,7 @@ def rewrite_headline(original: str) -> str | None:
         if match:
             actor, action = match.groups()
             if re.search(r"(발표|선포|의결|가결|통과|발의|요청|제출|합의|공개|"
-                         r"확정|승인|지시|거부|수용|제안|추진|개최|중단|결정|"
+                         r"확정|승인|지시|거부|부결|수용|제안|추진|개최|중단|결정|"
                          r"검토|촉구|임명)(?:했다|해|함|키로)?$", action):
                 final = actor[-1]
                 particle = '이' if '가' <= final <= '힣' and ((ord(final)-0xAC00) % 28) else '가'
