@@ -90,7 +90,20 @@
   refreshGeometry();
   window.addEventListener('resize', refreshGeometry);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(refreshGeometry);
+  // Defense in depth: old encrypted queues must not replay foreign headlines.
+  // The server applies a more comprehensive domestic-only rule before selection.
+  const foreignHeadline = /FBI|CIA|트럼프|바이든|푸틴|시진핑|젤렌스키|마크롱|다카이치|미국|미\s*연방|美\s*(?:대선|정부|대통령|공화|민주|의회|연방|법원|증시)|중국|中\s*(?:정부|당국|공산당|주석)|일본|日\s*(?:총리|정부|여당|야당)|러시아|우크라이나|대만|홍콩|북한|평양|김정은|영국|프랑스|독일|이탈리아|스페인|유럽|캐나다|호주|인도네시아|베트남|태국|필리핀|싱가포르|인도|파키스탄|이스라엘|팔레스타인|가자지구|이란|이라크|시리아|중동|멕시코|브라질|아르헨티나|아프리카|남미|국제\s*(?:뉴스|정세|사회|회의|기구|분쟁)|해외|외신|정상회담|외교장관|국제사회|유엔|미군|\b(?:EU|NATO|G7|G20)\b/i;
+  function allowBroadcast(item) {
+    return item && (item.kind !== 'politics' ||
+      (typeof item.title === 'string' && !foreignHeadline.test(item.title)));
+  }
   function show(item) {
+    if (!allowBroadcast(item)) {
+      remember(item.id);
+      active = false;
+      next();
+      return;
+    }
     active = true;
     remember(item.id);
     headline.textContent = item.title;
@@ -115,6 +128,7 @@
     show(item);
   }
   function offer(item) {
+    if (!allowBroadcast(item)) return;
     if (!item || typeof item.id !== 'string' || typeof item.title !== 'string'
       || !item.id || !item.title || seen[item.id] || queued.has(item.id)) return;
     if (!['politics','earthquake'].includes(item.kind)) return;

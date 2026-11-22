@@ -44,6 +44,33 @@ class CollectorTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertTrue(collector.political_ok(title, block_negative=True))
 
+    def test_foreign_world_headlines_are_excluded(self):
+        foreign = [
+            "FBI 트럼프 부정선거 주장 조사 착수",
+            "미국 FBI 트럼프 대선 부정선거 의혹",
+            "일본 총리 국회 해산 추진",
+            "중국 정부, 대통령 선거 결과 발표",
+            "러시아 대통령 우크라이나 관련 회담",
+            "유럽 의회 정치 개혁안 가결",
+            "영국 총리 의회 선거 일정 발표",
+            "이스라엘 정부 가자지구 공격 승인",
+            "북한 김정은 국정 운영 개편",
+            "이재명 대통령 미국 외교 정상회담",
+        ]
+        for title in foreign:
+            with self.subTest(title=title):
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+        domestic = [
+            "이재명 대통령 국무회의 개최",
+            "국회 예산안 심사 본격화",
+            "국민의힘, 국회 주요 법안 처리 방침",
+            "민주당 대구 민생 정책 토론회 개최",
+            "정부 수능 부정행위 신고 제도 개선",
+        ]
+        for title in domestic:
+            with self.subTest(title=title):
+                self.assertTrue(collector.political_ok(title, block_negative=True))
+
     def test_rewrite_is_nonidentical(self):
         self.assertEqual(collector.rewrite_headline('[속보] 국회, 주요 법안 통과'), '국회가 주요 법안 통과')
         self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '정부가 국정 현안 발표')

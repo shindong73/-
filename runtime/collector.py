@@ -85,6 +85,41 @@ def excluded_anti_government_rally(title: str) -> bool:
     return bool(RALLY_EVENT_RE.search(title) and RALLY_CONTEXT_RE.search(title))
 
 
+# Deliberate editorial scope: this ticker covers South Korean domestic politics
+# only. A Korean broadcaster covering foreign/world news does not make it domestic.
+# First reject explicit foreign names and international events, then require an
+# identifiable South Korean actor, institution or domestic-policy context.
+FOREIGN_NEWS_RE = re.compile(
+    r"\bFBI\b|\bCIA\b|\bEU\b|\bNATO\b|\bUN\b|\bG7\b|\bG20\b|"
+    r"트럼프|바이든|푸틴|시진핑|젤렌스키|마크롱|다카이치|"
+    r"미국|미\s*연방|美\s*(?:대선|정부|대통령|공화|민주|의회|연방|FBI|법원|증시)|"
+    r"중국|中\s*(?:정부|당국|공산당|주석)|일본|日\s*(?:총리|정부|여당|야당)|"
+    r"러시아|우크라이나|대만|홍콩|북한|평양|김정은|"
+    r"영국|프랑스|독일|이탈리아|스페인|유럽|캐나다|호주|"
+    r"인도네시아|베트남|태국|필리핀|싱가포르|인도|파키스탄|"
+    r"이스라엘|팔레스타인|가자지구|이란|이라크|시리아|중동|"
+    r"멕시코|브라질|아르헨티나|아프리카|남미|"
+    r"국제\s*(?:뉴스|정세|사회|회의|기구|분쟁)|해외|외신|"
+    r"정상회담|외교장관|국제사회|유엔|연합국|중동전쟁|미군",
+    re.I,
+)
+DOMESTIC_CONTEXT_RE = re.compile(
+    r"대한민국|한국|국내|우리나라|이재명|李\s*대통령|윤석열|"
+    r"민주당|국민의힘|국힘|조국혁신당|정청래|김민석|조희대|추미애|"
+    r"국회|대통령실|청와대|국무회의|국무총리|국정|정부|"
+    r"헌법재판소|헌재|대법원|검찰|특검|지방선거|수능|교육부|"
+    r"서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|"
+    r"경북|경남|전북|전남|강원|제주|여의도|용산|"
+    r"국회의원|여당|야당|대통령",
+    re.I,
+)
+
+
+def domestic_politics_only(title: str) -> bool:
+    return bool(DOMESTIC_CONTEXT_RE.search(title) and
+                not FOREIGN_NEWS_RE.search(title))
+
+
 
 def now_utc() -> datetime:
     return datetime.now(UTC)
@@ -144,7 +179,7 @@ def clean_title(title: str) -> str:
 
 
 def political_ok(title: str, *, block_negative: bool) -> bool:
-    if not POLITICAL_RE.search(title):
+    if not POLITICAL_RE.search(title) or not domestic_politics_only(title):
         return False
     if len(title) < 8 or re.search(r"\[광고\]|\[연예\]|오늘의\s*운세|야구\s*경기", title):
         return False
@@ -385,7 +420,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     for old in prev.get("items", []):
         when = parse_date(old.get("detected_at") or old.get("published_at"))
         # Preserve alerts for 16 minutes after discovery despite feed delays.
-        if when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5):
+        if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)
+                and (old.get("kind") != "politics" or political_ok(old.get("title", ""), block_negative=True))):
             recent.append(old)
     new = []
     failures = []
