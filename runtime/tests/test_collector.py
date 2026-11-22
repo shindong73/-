@@ -165,7 +165,7 @@ class CollectorTests(unittest.TestCase):
             seen=root/'seen.json'
             seen.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
             out=root/'feed.json'
-            event={'id':'lagged','kind':'politics','title':'국회 예산안 심사 일정 발표','source':'KBS',
+            event={'id':'lagged','kind':'politics','title':'국회 예산안 통과','source':'KBS',
                    'published_at':collector.iso(T-collector.timedelta(minutes=40)),
                    'link':'https://news.google.com/example','is_test':False}
             with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',seen),patch.object(collector,'OUT_PATH',out),patch.object(collector,'now_utc',return_value=T),patch.object(collector,'fetch_rss',return_value=[event]),patch.object(collector,'fetch_quakes',return_value=[]):
