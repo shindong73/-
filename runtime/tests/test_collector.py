@@ -289,7 +289,7 @@ class CollectorTests(unittest.TestCase):
             result=collector.fetch_rss("KBS",collector.NEWS_FEEDS["KBS"],T,SETTINGS)
         self.assertEqual(len(result),1)
         self.assertTrue(result[0]["is_breaking"])
-        self.assertEqual(result[0]["title"],"최교진 교육부 장관 사의 표명")
+        self.assertEqual(result[0]["title"],"최교진 교육부 장관 사퇴 의사 밝혀")
 
     def test_major_breaking_not_rate_limited_and_overflow_is_preserved(self):
         with tempfile.TemporaryDirectory() as tmp:

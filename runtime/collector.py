@@ -314,14 +314,14 @@ def rewrite_headline(original: str) -> str | None:
             response = market.group("response").strip()
             response = re.sub(r"\s*(?:조치|대책)\s*$", "", response).strip()
             if concern and response:
-                return f"{speaker}, {concern}…{response} 대응 촉구"[:100]
+                return f"{speaker}, {concern}…{response}{' 촉구' if response.endswith('대응') else ' 대응 촉구'}"[:100]
         # Do not substitute words inside a contested or otherwise complex quote.
         return title
 
     # A narrowly-scoped factual rewording, avoiding changes to who did what.
     paraphrases = (
-        (r"(?<!검토)\b사의를 표명\b", "사의 밝혀"),
-        (r"\b사의 표명\b", "사의 밝혀"),
+        (r"\b사의를 표명\b", "사퇴 의사 밝혀"),
+        (r"\b사의 표명\b", "사퇴 의사 밝혀"),
         (r"\b오늘\s+", ""),
         (r"\b국내 증시 안정 대책\b", "국내 증시 안정 방안"),
         (r"\b사유에 미포함\b", "사유에서 제외"),
