@@ -23,6 +23,49 @@ class CollectorTests(unittest.TestCase):
         self.assertFalse(collector.political_ok('[속보] 민주당 의원 구속 수사', block_negative=True))
         self.assertFalse(collector.political_ok('[속보] 이재명 대통령 사퇴 논란', block_negative=True))
 
+    def test_party_commentary_cannot_masquerade_as_resignation_breaking(self):
+        commentary = [
+            '국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"',
+            '[속보] 국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"',
+            '국민의힘, 최교진 사퇴로 끝날 일 아니다',
+            '국민의힘, 최교진 장관 사의 관련 논평',
+            '민주당 "장관 사퇴만으론 책임 다 못 져"',
+            '민주 "교육부 장관 사퇴 논란, 책임 물어야"',
+            '조국혁신당 "최교진 사퇴만으로는 부족"',
+            '민주당, 국민의힘 주장에 반박',
+            '국민의힘 "장관 임명 철회해야"',
+        ]
+        for title in commentary:
+            with self.subTest(title=title):
+                self.assertTrue(collector.party_commentary(title))
+                self.assertFalse(collector.confirmed_personnel_news(title))
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+                self.assertFalse(collector.important_politics_news(title))
+        factual = [
+            '최교진 교육부 장관 사의 표명',
+            '[긴급] 최교진 장관 사퇴 의사 밝혀',
+            '대통령실, 신임 교육부 차관 임명 확정',
+            '[속보] 국민의힘 당대표 사임 발표',
+        ]
+        for title in factual:
+            with self.subTest(title=title):
+                self.assertFalse(collector.party_commentary(title))
+                self.assertTrue(collector.political_ok(title, block_negative=True))
+
+    def test_broadcaster_rss_drops_party_reactions(self):
+        rss = '''<rss><channel>
+        <item><title>[속보] 국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"</title>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 GMT</pubDate>
+        <link>https://news.google.com/rss/articles/party</link><source>KBS 뉴스</source></item>
+        <item><title>[긴급] 최교진 교육부 장관 사의 표명</title>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 GMT</pubDate>
+        <link>https://news.google.com/rss/articles/personnel</link><source>KBS 뉴스</source></item>
+        </channel></rss>'''
+        with patch.object(collector, "get_url", return_value=rss.encode()):
+            found = collector.fetch_rss("KBS", collector.NEWS_FEEDS["KBS"], T, SETTINGS)
+        self.assertEqual(len(found), 1)
+        self.assertIn("최교진", found[0]["title"])
+
     def test_exclude_opposition_street_rally_and_response(self):
         blocked = [
             "국민의힘 대구 장외집회 개최 이재명 정부 압박",

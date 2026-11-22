@@ -159,8 +159,30 @@ UNCONFIRMED_APPOINTMENT_RE = re.compile(
 )
 
 
+# Criticism about a resignation is not an official personnel announcement.
+# Exclude reactive statements from every political party consistently.
+PARTY_NAME_PATTERN = r"(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당)"
+PARTY_QUOTED_OPINION_RE = re.compile(
+    PARTY_NAME_PATTERN + r"\s*(?:대변인|대표|원내대표)?\s*(?:[:：,，]\s*)?[“\"‘'「『]"
+)
+PARTY_REACTION_RE = re.compile(
+    PARTY_NAME_PATTERN + r".{0,55}?"
+    r"(?:논평|반박|비판|비난|규탄|공세|책임론|공방|"
+    r"못\s*믿|끝날\s*일\s*아냐|끝날\s*일\s*아니|"
+    r"끝날\s*문제\s*아니|사퇴로\s*끝날|사퇴만으론|"
+    r"사퇴에\s*그쳐선|책임\s*물어야)"
+)
+
+
+def party_commentary(title: str) -> bool:
+    clean = BREAKING_RE.sub("", title, count=1).strip()
+    return bool(PARTY_QUOTED_OPINION_RE.search(clean)
+                or PARTY_REACTION_RE.search(clean))
+
+
 def confirmed_personnel_news(title: str) -> bool:
     return bool(domestic_politics_only(title)
+                and not party_commentary(title)
                 and GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
                 and GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
                 and not UNCONFIRMED_APPOINTMENT_RE.search(title))
@@ -232,6 +254,8 @@ MAJOR_DECISION_RE = re.compile(
 
 def important_politics_news(title: str) -> bool:
     # Routine visits, remarks and party reactions are not a breaking headline.
+    if party_commentary(title):
+        return False
     return bool(confirmed_personnel_news(title)
                 or BREAKING_RE.search(title)
                 or MAJOR_DECISION_RE.search(title))
@@ -242,7 +266,7 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
         return False
     if len(title) < 8 or re.search(r"\[광고\]|\[연예\]|오늘의\s*운세|야구\s*경기", title):
         return False
-    if excluded_anti_government_rally(title):
+    if excluded_anti_government_rally(title) or party_commentary(title):
         return False
     # Don't imply that a resignation demand or an appointment rumor is final.
     if (GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
