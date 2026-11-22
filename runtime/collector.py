@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 from difflib import SequenceMatcher
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import html
 import json
 import os
@@ -31,23 +32,43 @@ UTC = timezone.utc
 # RSS feeds are retrieved server-side: mobile devices do not directly contact them.
 # KBS/MBC discovery via Google News; not official broadcaster RSS.
 # JTBC primary feed is the user-provided breaking RSS.
+# Google News searches are discovery only; original publisher is checked below.
+# Extra focused personnel searches help keep time-sensitive Korean appointments
+# from being buried in large general politics feeds.
 NEWS_FEEDS = {
     "KBS": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
+        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "MBC": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
+        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "JTBC": "https://news-ex.jtbc.co.kr/v1/get/rss/newsflesh",
+    "연합뉴스": "https://news.google.com/rss/search?" + urlencode({
+        "q": "site:yna.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 차관 OR 발탁 OR 사퇴 OR 사의) when:6h",
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+    }),
 }
 JTBC_BACKUP = "https://fs.jtbc.co.kr/RSS/newsflash.xml"
 MBC_DIRECT_POLITICS_RSS = "https://imnews.imbc.com/rss/news/news_01.xml"
 JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
-    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
+    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사퇴) when:6h",
     "hl": "ko", "gl": "KR", "ceid": "KR:ko"
 })
+PERSONNEL_TERMS = "(사의 OR 사퇴 OR 사임 OR 사표 OR 발탁 OR 지명 OR 임명 OR 내정 OR 경질 OR 해임 OR 교체)"
+FOCUSED_FEEDS = [
+    (source, "https://news.google.com/rss/search?" + urlencode({
+        "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실) {PERSONNEL_TERMS} when:6h",
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+    }))
+    for source, domain in (
+        ("KBS", "news.kbs.co.kr"),
+        ("MBC", "imnews.imbc.com"),
+        ("JTBC", "news.jtbc.co.kr"),
+        ("연합뉴스", "yna.co.kr"),
+    )
+]
 
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
@@ -57,7 +78,9 @@ POLITICAL_RE = re.compile(
     r"대통령|대통령실|청와대|국회|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
     r"국무회의|정부|총리|장관|정당|선거|대선|총선|지방선거|의원|특검|탄핵|"
     r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
-    r"민주유공자|사법개혁|정책발표|국정과제|공직"
+    r"민주유공자|사법개혁|정책발표|국정과제|공직|최교진|최민희|"
+    r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
+    r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사"
 )
 # Conservative editorial exclusion: title-only rules have false positives and false negatives.
 # The overlay must not be described as neutral or comprehensive news coverage.
@@ -104,8 +127,9 @@ FOREIGN_NEWS_RE = re.compile(
     re.I,
 )
 DOMESTIC_CONTEXT_RE = re.compile(
-    r"대한민국|한국|국내|우리나라|이재명|이\s*대통령|李\s*대통령|尹\s*대통령|윤석열|"
-    r"민주당|국민의힘|국힘|조국혁신당|정청래|김민석|조희대|추미애|"
+    r"대한민국|한국|국내|우리나라|이재명|이\s*대통령|李\s*대통령|尹\s*대통령|윤석열|최교진|"
+    r"민주당|국민의힘|국힘|조국혁신당|정청래|최민희|김민석|조희대|추미애|교육부|"
+    r"교육장관|교육부장관|국무위원|정부서울청사|정부세종청사|"
     r"국회|대통령실|청와대|국무회의|국무총리|국정|"
     r"헌법재판소|헌재|대법원|검찰|특검|지방선거|수능|교육부|"
     r"서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|"
@@ -118,6 +142,28 @@ DOMESTIC_CONTEXT_RE = re.compile(
 def domestic_politics_only(title: str) -> bool:
     return bool(DOMESTIC_CONTEXT_RE.search(title) and
                 not FOREIGN_NEWS_RE.search(title))
+
+
+# Priority for substantive, confirmed Korean government appointments/exits.
+# Mere demands, speculation or "should resign" stories are not confirmations.
+GOVERNMENT_PERSONNEL_ACTOR_RE = re.compile(
+    r"최교진|교육부|국무총리|부총리|국무위원|대통령실|장관|차관|"
+    r"비서실장|수석비서관|청장|장관급|차관급"
+)
+GOVERNMENT_PERSONNEL_ACTION_RE = re.compile(
+    r"사의|사표|사직서|사퇴|사임|경질|해임|교체|발탁|내정|지명|임명"
+)
+UNCONFIRMED_APPOINTMENT_RE = re.compile(
+    r"촉구|요구|압박|가능성|거론|검토|전망|발탁설|사퇴설|임명설|"
+    r"인사설|하라|해야|할까|하나|추측|루머|철회\s*요구"
+)
+
+
+def confirmed_personnel_news(title: str) -> bool:
+    return bool(domestic_politics_only(title)
+                and GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
+                and GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
+                and not UNCONFIRMED_APPOINTMENT_RE.search(title))
 
 
 
@@ -173,7 +219,7 @@ def write_json(path: Path, value: dict) -> None:
 
 def clean_title(title: str) -> str:
     text = html.unescape(re.sub(r"<[^>]+>", "", title or ""))
-    text = re.sub(r"\s*[-|]\s*(?:KBS\s*뉴스|KBS뉴스|MBC\s*뉴스|MBC뉴스|MBC|JTBC\s*뉴스|JTBC)\s*$", "", text, flags=re.I)
+    text = re.sub(r"\s*[-|]\s*(?:KBS\s*뉴스|KBS뉴스|MBC\s*뉴스|MBC뉴스|MBC|JTBC\s*뉴스|JTBC|연합뉴스)\s*$", "", text, flags=re.I)
     text = re.sub(r"\s+", " ", text).strip()
     return text[:160]
 
@@ -185,6 +231,13 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
         return False
     if excluded_anti_government_rally(title):
         return False
+    # Don't imply that a resignation demand or an appointment rumor is final.
+    if (GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
+            and GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
+            and UNCONFIRMED_APPOINTMENT_RE.search(title)):
+        return False
+    if confirmed_personnel_news(title):
+        return True
     if block_negative and DEM_ACTORS.search(title) and NEGATIVE_TERMS.search(title):
         return False
     return True
@@ -300,7 +353,8 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         if "news.google.com" in url or source == "KBS" or (source == "MBC" and "imnews.imbc.com" not in url):
             # Google News is discovery, so the original publisher must match.
             source_name = (item.findtext("source") or "").strip().upper()
-            if source not in source_name:
+            expected_names = ("연합뉴스", "YONHAP") if source == "연합뉴스" else (source,)
+            if not any(name in source_name for name in expected_names):
                 continue
         else:
             # The JTBC first-party RSS must point to an actual JTBC article.
@@ -428,45 +482,38 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
     elif mode == "live":
-        news = []
-        for source, url in NEWS_FEEDS.items():
-            if source != "JTBC":
-                if source == "MBC":
-                    try:
-                        news.extend(fetch_rss(source, MBC_DIRECT_POLITICS_RSS, current, settings))
-                    except Exception as exc:
-                        print(f"Optional MBC direct RSS unavailable: {exc}")
+        # Query independent sources in parallel: a failing RSS URL cannot
+        # delay all other sources. Each original publisher is still verified.
+        requests = [(source, url) for source, url in NEWS_FEEDS.items()]
+        requests += FOCUSED_FEEDS
+        requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
+        # MBC direct feed currently delivers malformed XML; no longer block
+        # the rest of collection waiting for its repeated parse failure.
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = {
+                pool.submit(fetch_rss, source, url, current, settings): (source, url)
+                for source, url in requests
+            }
+            for future in as_completed(futures):
+                source, url = futures[future]
                 try:
-                    news.extend(fetch_rss(source, url, current, settings))
+                    news.extend(future.result())
                 except Exception as exc:
-                    failures.append(f"{source}: {exc}")
-                continue
-            # Always try the provided direct JTBC breaking feed first.
-            jtbc_ok = False
-            for candidate_url in (url, JTBC_BACKUP):
-                try:
-                    direct_articles = fetch_rss(source, candidate_url, current, settings)
-                    if direct_articles:
-                        news.extend(direct_articles)
-                        jtbc_ok = True
-                        break
-                except Exception as exc:
-                    failures.append(f"JTBC feed attempt: {exc}")
-            # Supplement broad political news even if a direct feed succeeds.
-            try:
-                news.extend(fetch_rss("JTBC", JTBC_POLITICS_SEARCH, current, settings))
-            except Exception as exc:
-                failures.append(f"JTBC politics search: {exc}")
-            if not jtbc_ok:
-                print("JTBC direct feed unavailable; search feed remains available.")
+                    failures.append(f"{source} feed error: {exc}")
         try:
             earthquake = fetch_quakes(current, settings)
         except Exception as exc:
             earthquake = []
             failures.append(f"USGS: {exc}")
-        news.sort(key=lambda x: x["published_at"], reverse=True)
+        news.sort(key=lambda x: (
+            int(confirmed_personnel_news(x["title"])), x["published_at"]
+        ), reverse=True)
         candidate = news[:100] + earthquake
-        candidate.sort(key=lambda x: x["published_at"], reverse=True)
+        candidate.sort(key=lambda x: (
+            int(x["kind"] == "earthquake"),
+            int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
+            x["published_at"]
+        ), reverse=True)
         politics_added = 0
         duplicate_count = 0
         for item in candidate:

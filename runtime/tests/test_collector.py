@@ -13,8 +13,8 @@ SETTINGS = {'exclude_unfavorable_dem_news': True, 'headline_max_age_minutes': 90
 
 class CollectorTests(unittest.TestCase):
     def test_only_broadcaster_feeds(self):
-        self.assertEqual(set(collector.NEWS_FEEDS), {'KBS', 'MBC', 'JTBC'})
-        self.assertNotIn('yna.co.kr', '\n'.join(collector.NEWS_FEEDS.values()))
+        self.assertEqual(set(collector.NEWS_FEEDS), {'KBS', 'MBC', 'JTBC', '연합뉴스'})
+        self.assertIn('yna.co.kr', '\n'.join(collector.NEWS_FEEDS.values()))
 
     def test_breaking_filter_and_editorial_gate(self):
         self.assertTrue(collector.political_ok('[속보] 국회, 주요 법안 통과', block_negative=True))
@@ -205,6 +205,46 @@ class CollectorTests(unittest.TestCase):
                 test = collector.run("test_politics")
                 self.assertEqual(len(test["delivery_log"]), 1)
                 self.assertNotIn("테스트", test["delivery_log"][0]["title"])
+
+    def test_personnel_resignation_and_appointment_priority(self):
+        confirmed = [
+            "[긴급] 최교진, 수능 대혼란 책임지고 사의…준비 미흡 비판 통감",
+            "교육부 장관 최교진 사의 표명",
+            "교육부 차관 후임 발탁 결정",
+            "국무총리 신임 장관 내정 발표",
+            "대통령실 비서실장 교체",
+            "최민희 국회 상임위원장 임명",
+            "정청래 국회 인사 발표",
+        ]
+        for title in confirmed:
+            with self.subTest(title=title):
+                self.assertTrue(collector.political_ok(title, block_negative=True))
+        self.assertTrue(collector.confirmed_personnel_news(confirmed[0]))
+        self.assertTrue(collector.confirmed_personnel_news(confirmed[1]))
+        self.assertTrue(collector.confirmed_personnel_news(confirmed[2]))
+        unconfirmed = [
+            "교육부 장관 사퇴 요구",
+            "최교진 장관 사의 가능성 거론",
+            "국무총리 새 장관 발탁설",
+            "국회 장관 경질 촉구",
+        ]
+        for title in unconfirmed:
+            with self.subTest(title=title):
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+
+    def test_yonhap_google_news_publisher_validation(self):
+        rss = '''<rss><channel><item>
+        <title>[긴급] 최교진 교육부 장관 사의 표명 - 연합뉴스</title>
+        <source url="https://www.yna.co.kr">연합뉴스</source>
+        <pubDate>Sun, 22 Nov 2026 00:59:00 GMT</pubDate>
+        <link>https://news.google.com/rss/articles/example</link>
+        </item></channel></rss>'''
+        with patch.object(collector, "get_url", return_value=rss.encode("utf8")):
+            result = collector.fetch_rss("연합뉴스", collector.NEWS_FEEDS["연합뉴스"], T, SETTINGS)
+        self.assertEqual(len(result), 1)
+        self.assertIn("최교진", result[0]["title"])
+        self.assertEqual(result[0]["source"], "연합뉴스")
+        self.assertNotIn("- 연합뉴스", result[0]["title"])
 
     def test_direct_jtbc_source_validation(self):
         source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
