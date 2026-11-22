@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const DISPLAY_MS = 30000;
-  const POLL_MS = 7000;
+  const POLL_MS = 3000;
   const MAX_AGE_MS = 16 * 60 * 1000;
   const frame = document.querySelector('#frame');
   const bar = document.querySelector('#bar');
@@ -118,12 +118,12 @@
     if (!item || typeof item.id !== 'string' || typeof item.title !== 'string'
       || !item.id || !item.title || seen[item.id] || queued.has(item.id)) return;
     if (!['politics','earthquake'].includes(item.kind)) return;
-    const published = Date.parse(item.published_at);
-    if (!Number.isFinite(published) || published < Date.now() - MAX_AGE_MS || published > Date.now() + 300000) return;
+    const discovered = Date.parse(item.detected_at || item.published_at);
+    if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS || discovered > Date.now() + 300000) return;
     queued.add(item.id);
     queue.push(item);
     queue.sort((a,b) => Number(b.kind==='earthquake') - Number(a.kind==='earthquake')
-      || Date.parse(a.published_at) - Date.parse(b.published_at));
+      || Date.parse(a.detected_at || a.published_at) - Date.parse(b.detected_at || b.published_at));
     next();
   }
   function fromBase64(b64) {

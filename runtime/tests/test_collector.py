@@ -118,6 +118,34 @@ class CollectorTests(unittest.TestCase):
             '민주당 조희대 대법원장 탄핵 철회'
         ))
 
+    def test_direct_mbc_politics_feed_and_timezone(self):
+        xml = '''<rss><channel><item><title>국회 예산안 심사 일정 발표</title>
+        <pubDate>Sun, 22 Nov 2026 09:59:00 +0900</pubDate>
+        <link>https://imnews.imbc.com/news/2026/politics/article/12345.html</link></item></channel></rss>'''
+        with patch.object(collector,'get_url',return_value=xml.encode()):
+            found=collector.fetch_rss('MBC', collector.MBC_DIRECT_POLITICS_RSS, T, SETTINGS)
+        self.assertEqual(len(found),1)
+        self.assertEqual(found[0]['published_at'],'2026-11-22T00:59:00Z')
+
+    def test_feed_lag_does_not_suppress_newly_detected_news(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            cfg=root/'config.json'
+            cfg.write_text('{"headline_max_age_minutes":90}',encoding='utf8')
+            seen=root/'seen.json'
+            seen.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
+            out=root/'feed.json'
+            event={'id':'lagged','kind':'politics','title':'국회 예산안 심사 일정 발표','source':'KBS',
+                   'published_at':collector.iso(T-collector.timedelta(minutes=40)),
+                   'link':'https://news.google.com/example','is_test':False}
+            with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',seen),patch.object(collector,'OUT_PATH',out),patch.object(collector,'now_utc',return_value=T),patch.object(collector,'fetch_rss',return_value=[event]),patch.object(collector,'fetch_quakes',return_value=[]):
+                first=collector.run('live')
+                self.assertEqual(first['items'][0]['published_at'],event['published_at'])
+                self.assertEqual(first['items'][0]['detected_at'],collector.iso(T))
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=5)),patch.object(collector,'fetch_rss',return_value=[]):
+                    next_check=collector.run('live')
+                self.assertEqual(len(next_check['items']),1)
+
     def test_direct_jtbc_source_validation(self):
         source = '''<rss><channel><item><title>국회 민주유공자법 의결</title>
         <pubDate>Sun, 22 Nov 2026 00:59:00 +0000</pubDate>

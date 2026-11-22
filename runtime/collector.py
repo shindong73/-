@@ -33,24 +33,25 @@ UTC = timezone.utc
 # JTBC primary feed is the user-provided breaking RSS.
 NEWS_FEEDS = {
     "KBS": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "MBC": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "JTBC": "https://news-ex.jtbc.co.kr/v1/get/rss/newsflesh",
 }
 JTBC_BACKUP = "https://fs.jtbc.co.kr/RSS/newsflash.xml"
+MBC_DIRECT_POLITICS_RSS = "https://imnews.imbc.com/rss/news/news_01.xml"
 JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
-    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:1d",
+    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄) when:6h",
     "hl": "ko", "gl": "KR", "ceid": "KR:ko"
 })
 
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
-# Only explicitly breaking-news-labelled headlines are selected.
+# Select verified recent politics articles with or without a breaking badge.
 BREAKING_RE = re.compile(r"(?:\[\s*(?:긴급\s*)?속보\s*\]|\(\s*속보\s*\)|【\s*속보\s*】|^\s*속보\s*[:：])", re.I)
 POLITICAL_RE = re.compile(
     r"대통령|대통령실|청와대|국회|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
@@ -230,31 +231,44 @@ def stable_id(kind: str, link: str, title: str) -> str:
 
 
 def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[dict]:
-    root = ET.fromstring(get_url(url))
+    optional_direct = url in {JTBC_BACKUP, NEWS_FEEDS["JTBC"], MBC_DIRECT_POLITICS_RSS}
+    root = ET.fromstring(get_url(url, attempts=1 if optional_direct else 2))
     items = []
     counters = {"raw": 0, "politics": 0, "recent": 0, "source": 0}
-    for item in root.findall(".//item"):
+    candidates = root.findall(".//item") or root.findall(".//{*}entry")
+    ages_minutes = []
+    for item in candidates:
         counters["raw"] += 1
-        title = clean_title(item.findtext("title") or "")
+        title = clean_title(item.findtext("title") or item.findtext("{*}title") or "")
         if not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
             continue
         counters["politics"] += 1
-        published = parse_date(item.findtext("pubDate") or item.findtext("published"))
+        published = parse_date(item.findtext("pubDate") or item.findtext("published") or
+                               item.findtext("{*}published") or item.findtext("{*}updated"))
+        if published:
+            ages_minutes.append(round((current - published).total_seconds()/60))
         if not published or not (current - timedelta(minutes=settings["headline_max_age_minutes"]) <= published <= current + timedelta(minutes=5)):
             continue
         counters["recent"] += 1
         link = (item.findtext("link") or "").strip()
+        if not link:
+            node = item.find("{*}link")
+            if node is None:
+                node = item.find("link")
+            if node is not None:
+                link = (node.get("href") or node.text or "").strip()
         if not link.startswith("https://"):
             continue
-        if source in {"KBS", "MBC"} or "news.google.com" in url:
+        if "news.google.com" in url or source == "KBS" or (source == "MBC" and "imnews.imbc.com" not in url):
             # Google News is discovery, so the original publisher must match.
             source_name = (item.findtext("source") or "").strip().upper()
             if source not in source_name:
                 continue
         else:
             # The JTBC first-party RSS must point to an actual JTBC article.
-            host = urlparse(link).hostname or ""
-            if not (host == "jtbc.co.kr" or host.endswith(".jtbc.co.kr")):
+            host = (urlparse(link).hostname or "").lower()
+            expected = "imbc.com" if source == "MBC" else "jtbc.co.kr"
+            if not (host == expected or host.endswith("." + expected)):
                 continue
         counters["source"] += 1
         rewritten = rewrite_headline(title)
@@ -270,8 +284,10 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             "is_test": False,
         })
     # Counts only. Never log article headlines or broadcast labels publicly.
+    youngest = min(ages_minutes) if ages_minutes else "n/a"
     print(f"RSS {source}: seen={counters['raw']} political={counters['politics']} "
-          f"recent={counters['recent']} verified={counters['source']} eligible={len(items)}")
+          f"recent={counters['recent']} verified={counters['source']} eligible={len(items)} "
+          f"youngest_age_min={youngest}")
     return items
 
 
@@ -329,6 +345,7 @@ def make_test(mode: str, current: datetime, custom_text: str = "") -> dict:
         "title": title[:160],
         "source": "방송 테스트 · 실제 뉴스 아님",
         "published_at": iso(current),
+        "detected_at": iso(current),
         "link": "",
         "is_test": True,
     }
@@ -363,8 +380,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     ][-300:]
     recent: list[dict] = []
     for old in prev.get("items", []):
-        when = parse_date(old.get("published_at"))
-        # Preserve active events briefly across deployments for lagging clients.
+        when = parse_date(old.get("detected_at") or old.get("published_at"))
+        # Preserve alerts for 16 minutes after discovery despite feed delays.
         if when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5):
             recent.append(old)
     new = []
@@ -375,6 +392,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         news = []
         for source, url in NEWS_FEEDS.items():
             if source != "JTBC":
+                if source == "MBC":
+                    try:
+                        news.extend(fetch_rss(source, MBC_DIRECT_POLITICS_RSS, current, settings))
+                    except Exception as exc:
+                        print(f"Optional MBC direct RSS unavailable: {exc}")
                 try:
                     news.extend(fetch_rss(source, url, current, settings))
                 except Exception as exc:
@@ -416,17 +438,19 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             duplicate = item["kind"] == "politics" and any(
                 same_story(item["title"], entry["title"]) for entry in history
             )
-            seen[item["id"]] = iso(current)
             if duplicate:
+                seen[item["id"]] = iso(current)
                 duplicate_count += 1
                 continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
+                # Retry next scheduled run rather than silently losing the story.
                 continue
+            seen[item["id"]] = iso(current)
             if item["kind"] == "politics":
                 politics_added += 1
                 history.append({"title": item["title"], "published_at": item["published_at"]})
             if state.get("initialized"):
-                new.append(item)
+                new.append({**item, "detected_at": iso(current)})
         print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
         state["initialized"] = True
     else:
@@ -434,7 +458,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
 
     # Prevent simultaneous updates from displaying duplicates; newest first.
     combined = {x["id"]: x for x in [*recent, *new]}
-    active = sorted(combined.values(), key=lambda x: x["published_at"], reverse=True)[:20]
+    active = sorted(combined.values(), key=lambda x: x.get("detected_at") or x["published_at"], reverse=True)[:20]
     cutoff = current - timedelta(days=3)
     seen = {k: t for k, t in seen.items() if (parse_date(t) or current) >= cutoff}
     state["seen"] = seen
