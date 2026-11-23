@@ -6,6 +6,7 @@ on:
       - 'runtime/collector.py'
       - 'runtime/config.json'
       - 'runtime/web/**'
+      - 'cloudflare/**'
       - 'runtime/scripts/**'
       - 'runtime/tests/**'
       - '.github/workflows/refresh.yml'
@@ -55,6 +56,7 @@ jobs:
           python -m unittest discover -s runtime/tests -v
           node --check runtime/scripts/secure_payload.mjs
           node --check runtime/web/view.js
+          node runtime/tests/test_view_editorial.mjs
           node --check runtime/web/history.js
           node runtime/tests/test_secure_payload.mjs
           node cloudflare/tests/test-minute-dispatch.mjs

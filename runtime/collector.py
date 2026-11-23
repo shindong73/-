@@ -203,12 +203,17 @@ def parse_date(s: str | None) -> datetime | None:
     if not s:
         return None
     try:
-        return parsedate_to_datetime(s).astimezone(UTC)
+        date = parsedate_to_datetime(s)
     except (ValueError, TypeError, IndexError):
         try:
-            return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(UTC)
-        except ValueError:
+            date = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except (ValueError, TypeError):
             return None
+    # Source feeds occasionally omit their timezone; treat such dates as UTC
+    # instead of inheriting the runner's local timezone.
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=UTC)
+    return date.astimezone(UTC)
 
 
 def get_url(url: str, *, attempts: int = 2, timeout: int = 12) -> bytes:
@@ -608,7 +613,10 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
         # MBC direct feed currently delivers malformed XML; no longer block
         # the rest of collection waiting for its repeated parse failure.
-        with ThreadPoolExecutor(max_workers=8) as pool:
+        # Query USGS alongside broadcaster RSS so a slow earthquake API
+        # does not add another full network timeout to the 1-minute cycle.
+        with ThreadPoolExecutor(max_workers=9) as pool:
+            quake_future = pool.submit(fetch_quakes, current, settings)
             futures = {
                 pool.submit(fetch_rss, source, url, current, settings): (source, url)
                 for source, url in requests
@@ -619,11 +627,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     news.extend(future.result())
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
-        try:
-            earthquake = fetch_quakes(current, settings)
-        except Exception as exc:
-            earthquake = []
-            failures.append(f"USGS: {exc}")
+            try:
+                earthquake = quake_future.result()
+            except Exception as exc:
+                earthquake = []
+                failures.append(f"USGS: {exc}")
         news.sort(key=lambda x: (
             int(confirmed_personnel_news(x["title"])), x["published_at"]
         ), reverse=True)
@@ -741,7 +749,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     old_items = prev.get("items", [])
     output = {
         "generated_at": iso(current) if active != old_items else prev.get("generated_at"),
-        "update_interval_minutes": 5,
+        "update_interval_minutes": 1,
         "display_seconds": 30,
         "items": active,
         "history": history[-300:],

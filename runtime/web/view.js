@@ -99,7 +99,12 @@
   let seen = {};
   let lastPayload = '';
   let cryptoCache = {salt: null, key: null};
-  try { seen = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') || {}; } catch (_) {}
+  try {
+    const previous = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    if (previous && typeof previous === 'object' && !Array.isArray(previous)) {
+      seen = previous;
+    }
+  } catch (_) { /* Malformed local state must not interrupt the overlay. */ }
 
   function remember(id) {
     seen[id] = Date.now();
@@ -180,10 +185,17 @@
   const partyOpinion = /(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당)\s*(?:대변인|대표|원내대표)?\s*(?:[:,：，]\s*)?["“‘'「『]/;
   const partyReaction = /(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당).{0,55}?(?:논평|반박|비판|비난|규탄|공세|책임론|공방|못\s*믿|끝날\s*일\s*아냐|끝날\s*일\s*아니|끝날\s*문제\s*아니|사퇴로\s*끝날|사퇴만으론|사퇴에\s*그쳐선|책임\s*물어야)/;
   function allowBroadcast(item) {
-    return item && (item.kind !== 'politics' ||
-      (typeof item.title === 'string' && domesticHeadline.test(item.title)
-       && !foreignHeadline.test(item.title) && !partyOpinion.test(item.title)
-       && !partyReaction.test(item.title)));
+    if (!item || typeof item.title !== 'string' || !item.title.trim()) return false;
+    if (item.kind !== 'politics') return item.kind === 'earthquake';
+    // Apply the browser's last-resort editorial safety gate to the ORIGINAL
+    // publisher headline. The broadcast rewrite can omit the Korean actor,
+    // even when the server correctly approved a major domestic event.
+    // Never use an untrusted shortened caption to bypass party-opinion checks.
+    const original = typeof item.source_title === 'string' && item.source_title.trim()
+      ? item.source_title : item.title;
+    return domesticHeadline.test(original)
+      && !foreignHeadline.test(original) && !partyOpinion.test(original)
+      && !partyReaction.test(original);
   }
   function show(item) {
     if (!allowBroadcast(item)) {

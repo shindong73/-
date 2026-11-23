@@ -4,3 +4,9 @@ compatibility_date = "2026-11-23"
 
 [triggers]
 crons = ["* * * * *"]
+
+# Keep the Dashboard KV binding on future Wrangler deployments.
+# This namespace contains encrypted OBS caption-display events only.
+[[kv_namespaces]]
+binding = "CAPTION_LOGS"
+id = "1be3aac9ee67430885b6ed108b8f87f3"
