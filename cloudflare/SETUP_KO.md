@@ -72,3 +72,36 @@ OBS 브라우저 소스와 모바일 브라우저는 저장소가 분리되므�
 
 GitHub Pages와 OBS 브라우저 소스에서의 `logApi` 쿼리 값은 모두 HTTPS를 사용하세요.
 이 기능이 정상 작동하는지 검증하기 전까지 기존 속보 자막 전송 동작은 변경되지 않습니다.
+
+## Cron 1분 연동 점검 및 예비 수집
+
+GitHub 저장소의 기본 예약 실행은 **5분 간격**으로 설정되어 있습니다.
+Cloudflare Worker가 정상 작동하면 별도의 `workflow_dispatch` 실행이 매분 생성되며,
+기본 예약 실행은 Cloudflare 장애 시의 예비 수집 경로로 유지합니다.
+GitHub Actions 스케줄은 지연될 수 있어 정확한 실행 분을 보장하지 않습니다.
+
+기존 Cloudflare Worker에 등록된 비밀 변수 `GITHUB_DISPATCH_TOKEN`은 유지하세요.
+Cloudflare 편집기의 코드를 최신 `cloudflare/minute-dispatch.mjs`와 일치시키고
+다시 Deploy해야 GitHub의 코드 수정 내용이 실제 Worker에도 반영됩니다.
+
+배포된 Worker 주소 뒤에 `/health`를 붙여 접속하세요.
+응답에 `"version":"2026-11-23-diagnostics-v1"`가 있으면 수정된 코드가 배포된 것입니다.
+`"github_token_configured":true`면 비밀 변수 이름에 값이 있음을 뜻하지만,
+GitHub 토큰 자체가 유효하다거나 Cron이 호출된다는 보증은 아닙니다.
+`false`면 **Production** 환경의 `GITHUB_DISPATCH_TOKEN` 등록을 확인하세요.
+
+Cloudflare > Workers & Pages > 해당 Worker > Settings > Triggers:
+`Minute(s)=1` 또는 `* * * * *`.
+Cron 변경은 전체 네트워크 적용까지 최대 15분 소요될 수 있습니다.
+
+Cloudflare > Observability > Logs의 실행 유형에서 **Scheduled**를 확인하세요.
+- `OBS minute cron fired`: 예약 호출 자체는 실행됨
+- `Dispatched GitHub news collection: HTTP 204`: GitHub 실행 요청 접수
+- `GITHUB_DISPATCH_TOKEN secret is missing`: Worker에 비밀 변수가 없음
+- `GitHub workflow dispatch failed: HTTP 401`: 토큰 인증 실패 가능성
+- `GitHub workflow dispatch failed: HTTP 403`: Actions 권한 부족 가능성
+- `GitHub workflow dispatch failed: HTTP 404`: 저장소/워크플로 접근 오류 가능성
+
+실제 GitHub Actions에 `workflow_dispatch`가 연달아 생성되는지도 확인하세요.
+`/health`는 읽기 전용이며 GitHub 실행을 강제하지 않습니다.
+토큰 또는 원본 로그의 인증 헤더는 공개하지 마세요.
