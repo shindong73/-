@@ -107,10 +107,32 @@ async function handleCaptionLog(request, env) {
 }
 
 export default {
-  async scheduled(_controller, env, ctx) {
-    ctx.waitUntil(requestCollection(env));
+  async scheduled(controller, env, ctx) {
+    // Logs show whether Cloudflare invoked the cron even if the GitHub API fails.
+    console.log("OBS minute cron fired:", controller?.cron || "manual");
+    ctx.waitUntil(requestCollection(env).catch(err => {
+      // Only disclose a sanitized status or local error; never log auth data.
+      console.error("OBS GitHub dispatch error:", err instanceof Error ? err.message : "unknown");
+      throw err;
+    }));
   },
   async fetch(request, env) {
+    if (!request?.url) return new Response("Not found", {status:404});
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/health") {
+      // Read-only diagnostics; this endpoint never triggers GitHub Actions.
+      return new Response(JSON.stringify({
+        service:"OBS News Cron Trigger",
+        version:"2026-11-23-diagnostics-v1",
+        worker_deployed:true,
+        github_token_configured:!!String(env?.GITHUB_DISPATCH_TOKEN || "").trim(),
+        cron_status:"Check Cloudflare Triggers / Observability",
+        dispatch_status:"Check GitHub Actions workflow_dispatch runs"
+      }),{
+        status:200,
+        headers:{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store"}
+      });
+    }
     return handleCaptionLog(request, env);
   }
 };
