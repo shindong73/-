@@ -58,3 +58,26 @@ const wrongOrigin=await worker.fetch(new Request(url,{headers:{...headers,Origin
 assert.equal(wrongOrigin.status,403);
 assert.equal((await worker.fetch(new Request("https://test.example.workers.dev/"),env)).status,404);
 console.log("Encrypted caption display logging API tests OK");
+
+const healthUrl = "https://test.example.workers.dev/health";
+const health = await worker.fetch(new Request(healthUrl),{GITHUB_DISPATCH_TOKEN:secret});
+assert.equal(health.status,200);
+assert.equal(health.headers.get("Cache-Control"),"no-store");
+assert.equal((await health.json()).github_token_configured,true);
+const noTokenHealth=await worker.fetch(new Request(healthUrl),{});
+assert.equal((await noTokenHealth.json()).github_token_configured,false);
+assert.equal((await worker.fetch(new Request(healthUrl,{method:"POST"}),{})).status,404);
+// Exercise actual scheduled() invocation without sending a real API request.
+const oldFetch = globalThis.fetch;
+globalThis.fetch = mockFetch;
+try {
+  const promises=[];
+  await worker.scheduled({cron:"* * * * *"},{GITHUB_DISPATCH_TOKEN:secret},{
+    waitUntil(p) {promises.push(p);}
+  });
+  assert.equal(promises.length,1);
+  await Promise.all(promises);
+  assert.equal(calls.length,2);
+} finally { globalThis.fetch=oldFetch; }
+console.log("Cron scheduled() and read-only health endpoint tests OK");
+
