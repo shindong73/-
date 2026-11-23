@@ -61,6 +61,7 @@ function responseJson(body, status, origin) {
   });
 }
 async function handleCaptionLog(request, env) {
+  if (!request || !request.url) return new Response("Not found", {status:404});
   const url = new URL(request.url);
   if (url.pathname !== CAPTION_PATH) return new Response("Not found", {status:404});
   const origin = request.headers.get("Origin") || "";
