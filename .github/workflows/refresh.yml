@@ -57,6 +57,7 @@ jobs:
           node --check runtime/web/view.js
           node --check runtime/web/history.js
           node runtime/tests/test_secure_payload.mjs
+          node cloudflare/tests/test-minute-dispatch.mjs
       - name: Restore state
         env:
           VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}
