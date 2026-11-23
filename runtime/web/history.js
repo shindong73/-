@@ -66,11 +66,17 @@
       if(!response.ok)throw new Error('데이터 요청 실패: '+response.status);
       const data=await decrypt(await response.json());
       server=(Array.isArray(data.delivery_log)?data.delivery_log:[]).filter(x=>x&&!x.is_test&&x.title).reverse();
-      $('status').textContent='서버 선별 기록: 최근 최대 30일 · 실제 OBS/송출 표시 여부는 별개';
+      const scan = data.last_scan_at || data.generated_at;
+      const age = Date.now() - Date.parse(scan || '');
+      $('server-scan-at').textContent = dateKst(scan);
+      $('status').textContent = Number.isFinite(age) && age > 30 * 60 * 1000
+        ? '수집 지연 경고: 서버 수집 기록이 30분 이상 갱신되지 않았습니다. GitHub Actions 실행 상태를 확인하세요.'
+        : '서버 선별 기록: 최근 최대 30일 · 실제 OBS/송출 표시 여부는 별개';
       $('checked-at').textContent=dateKst(new Date().toISOString());
     }catch(e){
       $('status').textContent='기록 확인 실패. 주소 끝의 #key=비밀키를 확인하세요. '+(e?.message||'');
       server=[];
+      $('server-scan-at').textContent='—';
     }
     render();
   }

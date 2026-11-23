@@ -57,10 +57,10 @@ JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
     "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사퇴) when:6h",
     "hl": "ko", "gl": "KR", "ceid": "KR:ko"
 })
-PERSONNEL_TERMS = "(사의 OR 사퇴 OR 사임 OR 사표 OR 발탁 OR 지명 OR 임명 OR 내정 OR 경질 OR 해임 OR 교체)"
+PERSONNEL_TERMS = "(사의 OR 사퇴 OR 사임 OR 사표 OR 발탁 OR 지명 OR 임명 OR 내정 OR 경질 OR 해임 OR 교체 OR 인선 OR 후보자)"
 FOCUSED_FEEDS = [
     (source, "https://news.google.com/rss/search?" + urlencode({
-        "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실) {PERSONNEL_TERMS} when:6h",
+        "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실 OR 국정원장 OR 국가정보원 OR 외교부 OR 통일부 OR 행안부 OR 문체부 OR 개각) {PERSONNEL_TERMS} when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }))
     for source, domain in (
@@ -81,7 +81,7 @@ POLITICAL_RE = re.compile(
     r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
     r"민주유공자|사법개혁|정책발표|국정과제|공직|최교진|최민희|"
     r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
-    r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사"
+    r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사|인선|개각|국정원장|국가정보원|외교부|통일부|행안부|문체부"
 )
 # Conservative editorial exclusion: title-only rules have false positives and false negatives.
 # The overlay must not be described as neutral or comprehensive news coverage.
@@ -124,7 +124,7 @@ FOREIGN_NEWS_RE = re.compile(
     r"이스라엘|팔레스타인|가자지구|이란|이라크|시리아|중동|"
     r"멕시코|브라질|아르헨티나|아프리카|남미|"
     r"국제\s*(?:뉴스|정세|사회|회의|기구|분쟁)|해외|외신|"
-    r"정상회담|외교장관|국제사회|유엔|연합국|중동전쟁|미군",
+    r"정상회담|국제사회|유엔|연합국|중동전쟁|미군",
     re.I,
 )
 DOMESTIC_CONTEXT_RE = re.compile(
@@ -135,7 +135,8 @@ DOMESTIC_CONTEXT_RE = re.compile(
     r"헌법재판소|헌재|대법원|검찰|특검|지방선거|수능|교육부|"
     r"서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|"
     r"경북|경남|전북|전남|강원|제주|여의도|용산|"
-    r"국회의원|행정안전부|기획재정부|금융위원회|민생|법무부",
+    r"국회의원|행정안전부|기획재정부|금융위원회|민생|법무부|"
+    r"국정원장|국가정보원|국정원|개각|인선|외교부|외교장관|통일부|통일장관|행안부|행안장관|문체부|문체장관|문화체육관광부|강금실|임웅순|홍익표|한준호|강유정",
     re.I,
 )
 
@@ -149,14 +150,14 @@ def domestic_politics_only(title: str) -> bool:
 # Mere demands, speculation or "should resign" stories are not confirmations.
 GOVERNMENT_PERSONNEL_ACTOR_RE = re.compile(
     r"최교진|교육부|국무총리|부총리|국무위원|대통령실|장관|차관|"
-    r"비서실장|수석비서관|청장|장관급|차관급"
+    r"비서실장|수석비서관|청장|장관급|차관급|국정원장|국가정보원장|개각|외교부|통일부|행안부|문체부"
 )
 GOVERNMENT_PERSONNEL_ACTION_RE = re.compile(
     r"사의|사표|사직서|사퇴|사임|경질|해임|교체|발탁|내정|지명|임명"
 )
 UNCONFIRMED_APPOINTMENT_RE = re.compile(
     r"촉구|요구|압박|가능성|거론|검토|전망|발탁설|사퇴설|임명설|"
-    r"인사설|하라|해야|할까|하나|추측|루머|철회\s*요구"
+    r"인사설|교체설|지명설|내정설|하마평|유력|관측|하라|해야|할까|하나|추측|루머|확인\s*어렵|철회\s*요구"
 )
 
 
@@ -738,10 +739,17 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "history": history[-300:],
         "delivery_log": delivery_log,
         "last_check_errors": failures,
+        # Persist a roughly 15-minute heartbeat even without accepted news.
+        # History viewer can distinguish stale collection from an empty feed.
+        "last_scan_at": (iso(current) if mode == "live" and
+                         (not parse_date(prev.get("last_scan_at"))
+                          or current - parse_date(prev.get("last_scan_at")) >= timedelta(minutes=15))
+                         else prev.get("last_scan_at")),
         "notice": "선별 송출 서비스이며 전체 속보 목록이나 공적 경보 시스템이 아닙니다.",
     }
     if (active != old_items or output["history"] != old_history or
-            delivery_log != previous_log or not OUT_PATH.exists()):
+            delivery_log != previous_log or output["last_scan_at"] != prev.get("last_scan_at")
+            or not OUT_PATH.exists()):
         write_json(OUT_PATH, output)
     print(f"Mode {mode}. Live items: {len(active)}; new items: {len(new)}; failures: {len(failures)}")
     for failure in failures:

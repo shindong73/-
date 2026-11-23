@@ -1,6 +1,6 @@
 {
   "exclude_unfavorable_dem_news": true,
-  "headline_max_age_minutes": 90,
+  "headline_max_age_minutes": 180,
   "earthquake_max_age_minutes": 90,
   "min_magnitude": 4,
   "earthquake_region": {

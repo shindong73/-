@@ -87,6 +87,30 @@ class CollectorTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertTrue(collector.political_ok(title, block_negative=True))
 
+    def test_november_23_cabinet_reshuffle_should_be_eligible(self):
+        confirmed = [
+            '[속보] 李대통령, 국정원장 후보자로 강금실 전 장관 지명',
+            '[속보] 청 "국정원장 후보자에 강금실‥행안장관 한준호, 문체장관 강유정"',
+            '이 대통령, 국정원장 후보자 강금실·외교장관 임웅순·통일장관 홍익표 지명',
+            '[속보] 국정원장 강금실·외교 임웅순·행안 한준호·통일 홍익표·문체 강유정',
+        ]
+        for title in confirmed:
+            with self.subTest(title=title):
+                self.assertTrue(collector.domestic_politics_only(title))
+                self.assertTrue(collector.political_ok(title, block_negative=True))
+                self.assertTrue(collector.important_politics_news(title))
+        self.assertTrue(collector.confirmed_personnel_news(confirmed[0]))
+        self.assertTrue(collector.confirmed_personnel_news(confirmed[2]))
+        rejected = [
+            '국정원장 강금실 교체설 유력',
+            '차기 국정원장 강금실 유력 전망',
+            '미국 외교장관 경질 발표',
+            '국힘 "국정원장 인선 졸속" 비판',
+        ]
+        for title in rejected:
+            with self.subTest(title=title):
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+
     def test_foreign_world_headlines_are_excluded(self):
         foreign = [
             "FBI 트럼프 부정선거 주장 조사 착수",
