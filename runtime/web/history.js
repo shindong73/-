@@ -4,6 +4,7 @@
   const secret = new URLSearchParams(location.hash.slice(1)).get('key') || '';
   const STORE = 'view-displayed-headlines-v1';
   let server = [], client = [];
+  let refreshing = false;
   const dateKst = value => {
     const n = Date.parse(value || '');
     return Number.isFinite(n) ? new Date(n).toLocaleString('ko-KR', {
@@ -59,6 +60,8 @@
     link.href=url;link.download='broadcast-feed-records.csv';link.click();URL.revokeObjectURL(url);
   }
   async function refresh(){
+    if (refreshing) return;
+    refreshing = true;
     $('status').textContent='암호화된 수집 기록 확인 중…';
     client=localLog().filter(x=>x&&x.kind&&x.title).reverse();
     try {
@@ -69,9 +72,11 @@
       const scan = data.last_scan_at || data.generated_at;
       const age = Date.now() - Date.parse(scan || '');
       $('server-scan-at').textContent = dateKst(scan);
-      $('status').textContent = Number.isFinite(age) && age > 30 * 60 * 1000
-        ? '수집 지연 경고: 서버 수집 기록이 30분 이상 갱신되지 않았습니다. GitHub Actions 실행 상태를 확인하세요.'
-        : '서버 선별 기록: 최근 최대 30일 · 실제 OBS/송출 표시 여부는 별개';
+      $('status').textContent = !Number.isFinite(age)
+        ? '마지막 수집 시각을 확인할 수 없습니다. GitHub Actions 실행 상태를 확인하세요.'
+        : age > 30 * 60 * 1000
+          ? '수집 지연 경고: 서버 수집 기록이 30분 이상 갱신되지 않았습니다. GitHub Actions 실행 상태를 확인하세요.'
+          : '서버 선별 기록: 최근 최대 30일 · 1분 간격 자동 갱신 · 실제 OBS/송출 표시 여부는 별개';
       $('checked-at').textContent=dateKst(new Date().toISOString());
     }catch(e){
       $('status').textContent='기록 확인 실패. 주소 끝의 #key=비밀키를 확인하세요. '+(e?.message||'');
@@ -79,9 +84,11 @@
       $('server-scan-at').textContent='—';
     }
     render();
+    refreshing = false;
   }
   $('query').addEventListener('input',render);
   $('refresh').addEventListener('click',refresh);
   $('export').addEventListener('click',exportCsv);
   refresh();
+  setInterval(refresh, 60000);
 })();

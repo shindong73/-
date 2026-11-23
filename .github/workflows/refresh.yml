@@ -51,7 +51,12 @@ jobs:
             exit 1
           fi
       - name: Check module behavior
-        run: python -m unittest discover -s runtime/tests -v
+        run: |
+          python -m unittest discover -s runtime/tests -v
+          node --check runtime/scripts/secure_payload.mjs
+          node --check runtime/web/view.js
+          node --check runtime/web/history.js
+          node runtime/tests/test_secure_payload.mjs
       - name: Restore state
         env:
           VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}

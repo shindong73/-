@@ -581,13 +581,19 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     ][-300:]
     recent: list[dict] = []
     for old in prev.get("items", []):
+        if not isinstance(old, dict) or not old.get("id") or not old.get("title"):
+            continue
         when = parse_date(old.get("detected_at") or old.get("published_at"))
-        # Preserve alerts for 16 minutes after discovery despite feed delays.
-        if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)
-                and (old.get("kind") != "politics" or political_ok(old.get("title", ""), block_negative=True))):
-            if (old.get("kind") == "politics"
-                    and not (old.get("is_breaking") or important_politics_news(old.get("title", "")))):
+        # Apply safety checks to the ORIGINAL source headline, not a rewritten
+        # lower-third. A concise approved headline can omit the actor, causing
+        # the previously approved alert to disappear on the next refresh.
+        original_title = old.get("source_title") or old.get("title", "")
+        if old.get("kind") == "politics":
+            if not political_ok(original_title, block_negative=True):
                 continue
+            if not (old.get("is_breaking") or important_politics_news(original_title)):
+                continue
+        if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)):
             recent.append(old)
     new = []
     failures = []
@@ -700,9 +706,12 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         if not isinstance(entry, dict) or not isinstance(entry.get("id"), str):
             continue
         date = parse_date(entry.get("detected_at") or entry.get("published_at"))
-        if date and current - timedelta(days=30) <= date <= current + timedelta(minutes=5):
-            if entry.get("kind") != "politics" or political_ok(entry.get("title", ""), block_negative=True):
-                delivery_log.append(entry)
+        # A delivery log is an immutable audit trail of what the server selected,
+        # not an RSS input feed. Never retroactively erase legitimate selected
+        # headlines just because a rewritten headline no longer matches filters.
+        if (date and current - timedelta(days=30) <= date <= current + timedelta(minutes=5)
+                and not entry.get("is_test") and isinstance(entry.get("title"), str)):
+            delivery_log.append(entry)
     logged_ids = {x["id"] for x in delivery_log}
     for item in new:
         if item.get("is_test") or item["id"] in logged_ids:

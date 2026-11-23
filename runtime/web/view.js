@@ -142,10 +142,17 @@
     }, DISPLAY_MS);
   }
   function next() {
-    if (active || !queue.length) return;
-    const item = queue.shift();
-    queued.delete(item.id);
-    show(item);
+    if (active) return;
+    while (queue.length) {
+      const item = queue.shift();
+      queued.delete(item.id);
+      const discovered = Date.parse(item.detected_at || item.published_at);
+      // A large backlog must never play expired news after its 16-minute TTL.
+      if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS ||
+          discovered > Date.now() + 300000 || seen[item.id] || !allowBroadcast(item)) continue;
+      show(item);
+      return;
+    }
   }
   function offer(item) {
     if (!allowBroadcast(item)) return;
@@ -158,7 +165,6 @@
     queue.push(item);
     queue.sort((a,b) => Number(b.kind==='earthquake') - Number(a.kind==='earthquake')
       || Date.parse(a.detected_at || a.published_at) - Date.parse(b.detected_at || b.published_at));
-    next();
   }
   function fromBase64(b64) {
     const raw = atob(b64);
@@ -201,6 +207,7 @@
           }
         }
         for (const item of data.items) offer(item);
+        next();
       } catch (_) {
         // Deliberately no visible error or plaintext fallback.
       } finally {

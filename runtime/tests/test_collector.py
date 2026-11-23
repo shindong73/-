@@ -298,6 +298,65 @@ class CollectorTests(unittest.TestCase):
                 self.assertEqual(len(test["delivery_log"]), 1)
                 self.assertNotIn("테스트", test["delivery_log"][0]["title"])
 
+    def test_health_heartbeat_persists_even_without_new_stories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root/'config.json'
+            cfg.write_text('{}', encoding='utf8')
+            seen = root/'seen.json'
+            seen.write_text('{"initialized":true,"seen":{}}', encoding='utf8')
+            out = root/'payload.json'
+            with patch.object(collector,'CONFIG_PATH',cfg), \
+                 patch.object(collector,'STORE_PATH',seen), \
+                 patch.object(collector,'OUT_PATH',out), \
+                 patch.object(collector,'fetch_rss',return_value=[]), \
+                 patch.object(collector,'fetch_quakes',return_value=[]):
+                with patch.object(collector,'now_utc',return_value=T):
+                    a=collector.run('live')
+                self.assertEqual(a['last_scan_at'],collector.iso(T))
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=10)):
+                    b=collector.run('live')
+                self.assertEqual(b['last_scan_at'],collector.iso(T))
+                with patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=16)):
+                    c=collector.run('live')
+                self.assertEqual(c['last_scan_at'],
+                                 collector.iso(T+collector.timedelta(minutes=16)))
+            self.assertEqual(json.loads(out.read_text())['last_scan_at'],c['last_scan_at'])
+
+    def test_approved_rewritten_headline_remains_on_feed_and_in_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            cfg=root/'config.json'
+            cfg.write_text('{}',encoding='utf8')
+            store=root/'seen.json'
+            store.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
+            out=root/'private.json'
+            selected={
+                'id':'approved-1','kind':'politics','title':'새 후보자 다섯 명 발표',
+                'source_title':'[속보] 청와대 국정원장 외교부 장관 인사 5명 지명',
+                'source':'연합뉴스','published_at':collector.iso(T),
+                'detected_at':collector.iso(T), 'is_breaking':True,
+                'is_test':False
+            }
+            prior={'items':[selected],
+                   'delivery_log':[{'id':'approved-1','kind':'politics',
+                                   'title':'새 후보자 다섯 명 발표',
+                                   'detected_at':collector.iso(T),
+                                   'source':'연합뉴스'}],
+                   'history':[],
+                   'generated_at':collector.iso(T),
+                   'last_scan_at':collector.iso(T)}
+            out.write_text(json.dumps(prior,ensure_ascii=False),encoding='utf8')
+            with patch.object(collector,'CONFIG_PATH',cfg), \
+                 patch.object(collector,'STORE_PATH',store), \
+                 patch.object(collector,'OUT_PATH',out), \
+                 patch.object(collector,'now_utc',return_value=T+collector.timedelta(minutes=5)), \
+                 patch.object(collector,'fetch_rss',return_value=[]), \
+                 patch.object(collector,'fetch_quakes',return_value=[]):
+                next_refresh=collector.run('live')
+            self.assertEqual([x['id'] for x in next_refresh['items']],['approved-1'])
+            self.assertEqual([x['id'] for x in next_refresh['delivery_log']],['approved-1'])
+
     def test_personnel_resignation_and_appointment_priority(self):
         confirmed = [
             "[긴급] 최교진, 수능 대혼란 책임지고 사의…준비 미흡 비판 통감",

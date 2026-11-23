@@ -50,7 +50,10 @@ if (command === 'restore') {
   writeFileSync(PRIVATE, JSON.stringify({
     items:data.items,
     history:Array.isArray(data.history)?data.history:[],
-    delivery_log:Array.isArray(data.delivery_log)?data.delivery_log:[]
+    delivery_log:Array.isArray(data.delivery_log)?data.delivery_log:[],
+    generated_at:typeof data.generated_at==='string'?data.generated_at:null,
+    last_scan_at:typeof data.last_scan_at==='string'?data.last_scan_at:null,
+    last_check_errors:Array.isArray(data.last_check_errors)?data.last_check_errors:[]
   }) + '\n');
   console.log('Private state restored.');
 } else if (command === 'publish') {
@@ -61,7 +64,10 @@ if (command === 'restore') {
     label:process.env.VIEW_LABEL || '',
     items:current.items,
     history:Array.isArray(current.history)?current.history:[],
-    delivery_log:Array.isArray(current.delivery_log)?current.delivery_log:[]
+    delivery_log:Array.isArray(current.delivery_log)?current.delivery_log:[],
+    generated_at:typeof current.generated_at==='string'?current.generated_at:null,
+    last_scan_at:typeof current.last_scan_at==='string'?current.last_scan_at:null,
+    last_check_errors:Array.isArray(current.last_check_errors)?current.last_check_errors:[]
   });
   let unchanged = false;
   if (existsSync(ENCRYPTED)) {
@@ -82,6 +88,6 @@ if (command === 'restore') {
   writeFileSync(join(DEPLOY,'robots.txt'),'User-agent: *\nDisallow: /\n');
   console.log(`Encrypted deployment ready. Feed updated: ${!unchanged}`);
 } else {
-  console.error('Usage: node private_feed.mjs restore|publish');
+  console.error('Usage: node runtime/scripts/secure_payload.mjs restore|publish');
   process.exit(2);
 }
