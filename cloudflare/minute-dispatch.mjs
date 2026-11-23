@@ -28,12 +28,88 @@ async function requestCollection(env, fetcher = fetch) {
 
 export { requestCollection };
 
+
+/**
+ * Optional encrypted caption-display audit API.
+ * Requires the CAPTION_LOGS KV binding and CAPTION_LOG_SECRET Secret.
+ * Secret must match the long passphrase already used by the overlay.
+ * Only encrypted entries are persisted (never plaintext headlines).
+ */
+const CAPTION_PATH = "/caption-log";
+const ALLOWED_ORIGIN = "https://shindong73.github.io";
+function hex(bytes) {
+  return [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2, "0")).join("");
+}
+async function authDigest(secret) {
+  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret)));
+}
+function apiHeaders(origin) {
+  return {
+    "Cache-Control": "no-store",
+    "Vary": "Origin",
+    ...(origin === ALLOWED_ORIGIN ? {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Max-Age": "600"
+    } : {})
+  };
+}
+function responseJson(body, status, origin) {
+  return new Response(JSON.stringify(body), {
+    status, headers: {...apiHeaders(origin), "Content-Type": "application/json; charset=utf-8"}
+  });
+}
+async function handleCaptionLog(request, env) {
+  const url = new URL(request.url);
+  if (url.pathname !== CAPTION_PATH) return new Response("Not found", {status:404});
+  const origin = request.headers.get("Origin") || "";
+  if (origin && origin !== ALLOWED_ORIGIN) return responseJson({error:"Origin denied"},403,origin);
+  if (request.method === "OPTIONS") return new Response(null,{status:204,headers:apiHeaders(origin)});
+  if (!["GET","POST"].includes(request.method)) return responseJson({error:"Method not allowed"},405,origin);
+  const secret = String(env.CAPTION_LOG_SECRET || "");
+  if (!env.CAPTION_LOGS || secret.length < 32)
+    return responseJson({error:"Caption logging not configured"},503,origin);
+  const expected = "Bearer " + await authDigest(secret);
+  if (request.headers.get("Authorization") !== expected)
+    return responseJson({error:"Not authorized"},401,origin);
+  if (request.method === "GET") {
+    const listed = await env.CAPTION_LOGS.list({prefix:"caption:",limit:500});
+    return responseJson({
+      entries:listed.keys.map(k => k.metadata).filter(m =>
+        m && typeof m.started_at === "string" && m.v === 1
+      ),
+      has_more:!listed.list_complete
+    },200,origin);
+  }
+  let data;
+  try {data=await request.json();} catch (_) {return responseJson({error:"Invalid JSON"},400,origin);}
+  if (!data || typeof data !== "object" || !/^[0-9a-f]{64}$/.test(data.id || "") ||
+      data.v !== 1 || typeof data.started_at !== "string" ||
+      !/^[A-Za-z0-9+/=]{12,64}$/.test(data.iv || "") ||
+      !/^[A-Za-z0-9+/=]{24,850}$/.test(data.ct || "")) {
+    return responseJson({error:"Invalid encrypted event"},400,origin);
+  }
+  const at = Date.parse(data.started_at);
+  if (!Number.isFinite(at) || at < Date.now() - 30*86400000 || at > Date.now() + 300000)
+    return responseJson({error:"Event time out of range"},400,origin);
+  const metadata = {v:1,started_at:data.started_at,iv:data.iv,ct:data.ct};
+  if (JSON.stringify(metadata).length > 1024)
+    return responseJson({error:"Encrypted event too large"},413,origin);
+  // Reverse timestamp makes KV's lexicographical listing newest-first.
+  const reverse = String(9999999999999 - at).padStart(13,"0");
+  const key = "caption:" + reverse + ":" + data.id;
+  await env.CAPTION_LOGS.put(key,"",{
+    metadata,expirationTtl:35*86400
+  });
+  return responseJson({saved:true},201,origin);
+}
+
 export default {
   async scheduled(_controller, env, ctx) {
     ctx.waitUntil(requestCollection(env));
   },
-  async fetch() {
-    // No publicly accessible trigger endpoint, even with the Worker URL.
-    return new Response("Not found", {status:404});
+  async fetch(request, env) {
+    return handleCaptionLog(request, env);
   }
 };
