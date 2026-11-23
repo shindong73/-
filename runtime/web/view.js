@@ -13,6 +13,91 @@
   const password = new URLSearchParams(location.hash.slice(1)).get('key') || '';
   const STORAGE_KEY = 'view-state-v1';
   const DISPLAY_LOG_KEY = 'view-displayed-headlines-v1';
+
+  // Optional central history. Without logApi the browser-only log still works.
+  // Example: view.html?logApi=https%3A%2F%2Fyour-worker.workers.dev#key=...
+  const LOG_API = (() => {
+    try {
+      const raw = new URLSearchParams(location.search).get('logApi');
+      if (!raw) return '';
+      const url = new URL(raw);
+      return url.protocol === 'https:' ? url.origin + '/caption-log' : '';
+    } catch (_) { return ''; }
+  })();
+  let syncingLog = false;
+  let captionKeyPromise = null;
+  let authHashPromise = null;
+  const toB64 = bytes => btoa(String.fromCharCode(...bytes));
+  const toHex = bytes => [...new Uint8Array(bytes)].map(n => n.toString(16).padStart(2,'0')).join('');
+  function captionKey() {
+    if (!captionKeyPromise) captionKeyPromise = (async () => {
+      const material = await crypto.subtle.importKey('raw',new TextEncoder().encode(password),
+        'PBKDF2',false,['deriveKey']);
+      return crypto.subtle.deriveKey({
+        name:'PBKDF2',salt:new TextEncoder().encode('obs-caption-log-v1'),
+        iterations:210000,hash:'SHA-256'
+      },material,{name:'AES-GCM',length:256},false,['encrypt']);
+    })();
+    return captionKeyPromise;
+  }
+  function authHash() {
+    if (!authHashPromise) authHashPromise = crypto.subtle.digest('SHA-256',
+      new TextEncoder().encode(password)).then(toHex);
+    return authHashPromise;
+  }
+  function displayedLog() {
+    try {
+      const records = JSON.parse(localStorage.getItem(DISPLAY_LOG_KEY) || '[]');
+      return Array.isArray(records) ? records : [];
+    } catch (_) { return []; }
+  }
+  function recordDisplay(item) {
+    // This means the overlay started displaying, not that OBS was live/on-air.
+    const log=displayedLog();
+    log.push({
+      id:item.id,title:item.title,source:item.source || '',kind:item.kind,
+      started_at:new Date().toISOString(),planned_duration_seconds:DISPLAY_MS/1000,
+      synced_to_server:false
+    });
+    try {localStorage.setItem(DISPLAY_LOG_KEY,JSON.stringify(log.slice(-500)));} catch (_) {}
+    if (LOG_API) void syncDisplayedLog();
+  }
+  async function syncDisplayedLog() {
+    if (!LOG_API || !password || syncingLog || !crypto.subtle) return;
+    syncingLog = true;
+    try {
+      const records=displayedLog();
+      for (const row of records.filter(x => x && x.id && x.title && x.started_at &&
+        !x.synced_to_server && !x.is_test &&
+        Date.parse(x.started_at) > Date.now()-30*86400000).slice(-20)) {
+        const id=toHex(await crypto.subtle.digest('SHA-256',
+          new TextEncoder().encode(row.id + '|' + row.started_at)));
+        const iv=crypto.getRandomValues(new Uint8Array(12));
+        const event={
+          id:row.id,title:row.title,source:row.source || '',kind:row.kind || '',
+          started_at:row.started_at,planned_duration_seconds:row.planned_duration_seconds || 30
+        };
+        const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},
+          await captionKey(),new TextEncoder().encode(JSON.stringify(event))));
+        const response=await fetch(LOG_API,{
+          method:'POST',mode:'cors',cache:'no-store',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+await authHash()},
+          body:JSON.stringify({id,started_at:row.started_at,v:1,iv:toB64(iv),ct:toB64(ct)})
+        });
+        if (!response.ok) break;
+        const current=displayedLog();
+        const match=current.find(x=>x.id===row.id&&x.started_at===row.started_at);
+        if(match) {
+          match.synced_to_server=true;
+          try {localStorage.setItem(DISPLAY_LOG_KEY,JSON.stringify(current));} catch (_) {}
+        }
+      }
+    } catch (_) {
+      // Keep unsynced logs locally; retry without disturbing the on-screen headline.
+    } finally { syncingLog=false; }
+  }
+  if (LOG_API) setInterval(syncDisplayedLog,60000);
+
   const queue = [];
   const queued = new Set();
   let active = false;
@@ -114,23 +199,12 @@
     }
     active = true;
     remember(item.id);
-    if (!item.is_test) {
-      try {
-        const displayed = JSON.parse(localStorage.getItem(DISPLAY_LOG_KEY) || '[]');
-        const log = Array.isArray(displayed) ? displayed : [];
-        log.push({
-          id:item.id, title:item.title, source:item.source || '',
-          kind:item.kind, started_at:new Date().toISOString(),
-          planned_duration_seconds:DISPLAY_MS / 1000
-        });
-        localStorage.setItem(DISPLAY_LOG_KEY, JSON.stringify(log.slice(-500)));
-      } catch (_) { /* Never interrupt an overlay if device storage is disabled. */ }
-    }
     headline.textContent = item.title;
     fitHeadline();
     bar.classList.remove('closing', 'visible');
     void bar.offsetWidth;
     bar.classList.add('visible');
+    if (!item.is_test) recordDisplay(item);
     window.setTimeout(() => {
       bar.classList.remove('visible');
       bar.classList.add('closing');
