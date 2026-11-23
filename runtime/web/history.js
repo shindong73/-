@@ -3,14 +3,9 @@
   const $ = id => document.getElementById(id);
   const secret = new URLSearchParams(location.hash.slice(1)).get('key') || '';
   const STORE = 'view-displayed-headlines-v1';
-  const LOG_API = (() => {
-    try {
-      const raw = new URLSearchParams(location.search).get('logApi');
-      if (!raw) return '';
-      const url = new URL(raw);
-      return url.protocol === 'https:' ? url.origin + '/caption-log' : '';
-    } catch (_) {return '';}
-  })();
+  // Fixed first-party Cloudflare endpoint; never send credentials to query-provided hosts.
+  const LOG_API = new URLSearchParams(location.search).get('logApi') === 'off'
+    ? '' : 'https://shindong-news-minute-trigger.kkireutv.workers.dev/caption-log';
   let remote = [], local = [], displayed = [];
   let refreshing = false, remoteError = '', scanError = '', scanAt = '';
   let captionKeyPromise = null;
@@ -172,5 +167,7 @@
   $('refresh').addEventListener('click',refresh);
   $('export').addEventListener('click',exportCsv);
   refresh();
-  setInterval(refresh,60000);
+  // Stay within Cloudflare KV free-list quota; manual refresh stays immediate.
+  setInterval(() => { if (!document.hidden) refresh(); },180000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
 })();

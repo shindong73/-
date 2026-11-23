@@ -16,14 +16,9 @@
 
   // Optional central history. Without logApi the browser-only log still works.
   // Example: view.html?logApi=https%3A%2F%2Fyour-worker.workers.dev#key=...
-  const LOG_API = (() => {
-    try {
-      const raw = new URLSearchParams(location.search).get('logApi');
-      if (!raw) return '';
-      const url = new URL(raw);
-      return url.protocol === 'https:' ? url.origin + '/caption-log' : '';
-    } catch (_) { return ''; }
-  })();
+  // Fixed first-party Cloudflare endpoint; never send credentials to query-provided hosts.
+  const LOG_API = new URLSearchParams(location.search).get('logApi') === 'off'
+    ? '' : 'https://shindong-news-minute-trigger.kkireutv.workers.dev/caption-log';
   let syncingLog = false;
   let captionKeyPromise = null;
   let authHashPromise = null;
