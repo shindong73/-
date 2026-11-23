@@ -602,6 +602,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             recent.append(old)
     new = []
     failures = []
+    news_source_successes = 0
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
     elif mode == "live":
@@ -625,6 +626,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 source, url = futures[future]
                 try:
                     news.extend(future.result())
+                    news_source_successes += 1
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
             try:
@@ -755,6 +757,15 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "history": history[-300:],
         "delivery_log": delivery_log,
         "last_check_errors": failures,
+        # This heartbeat tracks a successful broadcaster request, not merely
+        # an attempted workflow run. Keep it separate from last_scan_at:
+        # otherwise every RSS source could fail while the dashboard looks fresh.
+        "last_news_source_success_at": (
+            iso(current) if mode == "live" and news_source_successes > 0 and
+            (not parse_date(prev.get("last_news_source_success_at")) or
+             current - parse_date(prev.get("last_news_source_success_at")) >= timedelta(minutes=15))
+            else prev.get("last_news_source_success_at")
+        ),
         # Persist a roughly 15-minute heartbeat even without accepted news.
         # History viewer can distinguish stale collection from an empty feed.
         "last_scan_at": (iso(current) if mode == "live" and
@@ -765,9 +776,13 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     }
     if (active != old_items or output["history"] != old_history or
             delivery_log != previous_log or output["last_scan_at"] != prev.get("last_scan_at")
+            or output["last_news_source_success_at"] != prev.get("last_news_source_success_at")
+            or failures != prev.get("last_check_errors", [])
             or not OUT_PATH.exists()):
         write_json(OUT_PATH, output)
-    print(f"Mode {mode}. Live items: {len(active)}; new items: {len(new)}; failures: {len(failures)}")
+    if mode == "live" and not news_source_successes:
+        print("WARNING All broadcaster RSS requests failed; new politics may be missing", file=sys.stderr)
+    print(f"Mode {mode}. News sources OK: {news_source_successes}; Live items: {len(active)}; new items: {len(new)}; failures: {len(failures)}")
     for failure in failures:
         print("WARNING " + failure, file=sys.stderr)
     return output

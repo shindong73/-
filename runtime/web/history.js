@@ -7,7 +7,8 @@
   const LOG_API = new URLSearchParams(location.search).get('logApi') === 'off'
     ? '' : 'https://shindong-news-minute-trigger.kkireutv.workers.dev/caption-log';
   let remote = [], local = [], displayed = [];
-  let refreshing = false, remoteError = '', scanError = '', scanAt = '';
+  let refreshing = false, remoteError = '', remoteLimited = false;
+  let scanError = '', scanAt = '', newsSuccessAt = '', scanFailures = [];
   let captionKeyPromise = null;
   const dateKst = value => {
     const n = Date.parse(value || '');
@@ -99,28 +100,41 @@
     const localOnly=displayed.filter(x=>x.place==='현재 브라우저').length;
     const notes=[];
     if(!LOG_API) notes.push('중앙 기록 연동이 설정되지 않아 이 브라우저의 표시 기록만 확인할 수 있습니다. OBS 브라우저 소스와 기록이 공유되지 않을 수 있습니다.');
-    else if(remoteError) notes.push('중앙 기록 확인 실패: '+remoteError+' (이 브라우저 기록만 표시될 수 있습니다.)');
+    else if(remoteError) notes.push('중앙 기록 주의: '+remoteError+(remote.length?' (마지막 정상 기록 유지)':''));
+
     else notes.push('중앙 저장 기록 조회 성공. OBS 자막 화면에 표시가 시작된 기록이며 실제 생방송 송출 증명은 아닙니다.');
+    if(remoteLimited) notes.push('최근 500건만 조회했습니다. 이전 기록은 조회 범위 밖에 있습니다.');
     if(localOnly) notes.push('현재 브라우저에만 남은 기록 '+localOnly+'건.');
     if(scanError) notes.push('수집 상태 확인 실패: '+scanError);
-    else if(scanAt && Date.now()-Date.parse(scanAt)>30*60000)
-      notes.push('뉴스 서버 수집이 30분 이상 갱신되지 않았습니다.');
+    else {
+      if(scanAt && Date.now()-Date.parse(scanAt)>30*60000)
+        notes.push('뉴스 서버 수집이 30분 이상 갱신되지 않았습니다.');
+      if(scanFailures.length) notes.push('최근 수집 작업에 오류 '+scanFailures.length+'건이 있습니다.');
+      if(newsSuccessAt && Date.now()-Date.parse(newsSuccessAt)>30*60000)
+        notes.push('뉴스 RSS 수집 성공이 30분 이상 확인되지 않았습니다.');
+    }
     $('status').textContent=notes.join(' ');
+  }
+  // Spreadsheet applications may execute formulas from untrusted article titles.
+  // Force formula-looking values to plain text before quoting for CSV.
+  function csvCell(value) {
+    const raw=String(value ?? '');
+    const safe=/^[\s\u200B-\u200D\uFEFF]*[=+\-@]/.test(raw) ? "'" + raw : raw;
+    return '"' + safe.replaceAll('"','""') + '"';
   }
   function exportCsv() {
     const rows=[['표시 시작(KST)','언론사','화면에 표시된 자막','예정 시간(초)','기록 위치'],
       ...displayed.map(x=>[dateKst(x.started_at),x.source||'',x.title,
         x.planned_duration_seconds||30,x.place])];
-    const csv='\uFEFF'+rows.map(r=>r.map(v=>'"'+String(v??'').replaceAll('"','""')+'"').join(',')).join('\r\n');
+    const csv='\uFEFF'+rows.map(r=>r.map(csvCell).join(',')).join('\r\n');
     const link=document.createElement('a');
     const url=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));
     link.href=url;link.download='obs-actual-displayed-captions.csv';link.click();
     setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
   async function loadRemote() {
-    remote=[];
     remoteError='';
-    if(!LOG_API) return;
+    if(!LOG_API) { remote=[]; return; }
     if(!secret) {remoteError='비밀키가 없습니다.';return;}
     try {
       const hash=toHex(await crypto.subtle.digest('SHA-256',
@@ -137,31 +151,42 @@
           return row && row.id && row.title && row.started_at ? row : null;
         } catch (_) {return null;}
       }));
+      // Only replace the last good snapshot after a successful fetch.
       remote=values.filter(Boolean);
-      if(data.has_more) remoteError='최근 500건만 표시됩니다. 오래된 기록은 조회 범위 밖에 있습니다.';
+      remoteLimited=!!data.has_more;
+      const unreadable=data.entries.length-remote.length;
+      if(unreadable) remoteError='복호화할 수 없는 중앙 기록 '+unreadable+'건을 제외했습니다.';
     } catch(e) {remoteError=e?.message || '연결 오류';}
   }
   async function loadScan() {
-    scanAt='';scanError='';
+    scanError='';
     if(!secret) {scanError='암호화 키가 없습니다.';return;}
     try {
       const response=await fetch('./data/payload.enc.json?v='+Date.now(),{cache:'no-store'});
       if(!response.ok) throw Error('HTTP '+response.status);
       const data=await decryptFeed(await response.json());
       scanAt=data.last_scan_at || data.generated_at || '';
+      newsSuccessAt=data.last_news_source_success_at || '';
+      scanFailures=Array.isArray(data.last_check_errors) ? data.last_check_errors : [];
     } catch(e) {scanError=e?.message || '연결 오류';}
   }
   async function refresh() {
     if(refreshing) return;
     refreshing=true;
     $('status').textContent='실제 자막 표시 기록 확인 중…';
-    local=localLog();
-    await Promise.all([loadRemote(),loadScan()]);
-    mergeLogs();
-    $('server-scan-at').textContent=dateKst(scanAt);
-    $('checked-at').textContent=dateKst(new Date().toISOString());
-    render();
-    refreshing=false;
+    try {
+      local=localLog();
+      await Promise.all([loadRemote(),loadScan()]);
+      mergeLogs();
+      $('server-scan-at').textContent=dateKst(scanAt);
+      $('news-success-at').textContent=dateKst(newsSuccessAt);
+      $('checked-at').textContent=dateKst(new Date().toISOString());
+      render();
+    } catch (_) {
+      $('status').textContent='기록창 처리 오류가 발생했습니다. 새로고침으로 재시도하세요.';
+    } finally {
+      refreshing=false;
+    }
   }
   $('query').addEventListener('input',render);
   $('refresh').addEventListener('click',refresh);

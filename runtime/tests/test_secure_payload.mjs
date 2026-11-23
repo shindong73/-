@@ -26,6 +26,7 @@ try {
                   detected_at:'2026-11-23T07:07:00Z'}],
     generated_at:'2026-11-23T07:07:00Z',
     last_scan_at:'2026-11-23T07:08:00Z',
+    last_news_source_success_at:'2026-11-23T07:08:00Z',
     last_check_errors:[],
   };
   writeFileSync(join(temp,'private','payload.json'),JSON.stringify(sample));

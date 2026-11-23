@@ -499,5 +499,48 @@ class CollectorTests(unittest.TestCase):
             self.assertEqual(data["items"], [])
             self.assertEqual(data["update_interval_minutes"], 1)
 
+
+    def test_rss_failure_and_recovery_are_persisted_immediately(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root / "config.json"
+            cfg.write_text('{}', encoding='utf8')
+            store = root / "seen.json"
+            store.write_text('{"initialized":true,"seen":{}}', encoding='utf8')
+            out = root / "payload.json"
+            common = (
+                patch.object(collector, "CONFIG_PATH", cfg),
+                patch.object(collector, "STORE_PATH", store),
+                patch.object(collector, "OUT_PATH", out),
+                patch.object(collector, "fetch_quakes", return_value=[]),
+            )
+            from contextlib import ExitStack
+            with ExitStack() as stack:
+                for ctx in common:
+                    stack.enter_context(ctx)
+                with patch.object(collector, "now_utc", return_value=T), \
+                     patch.object(collector, "fetch_rss", side_effect=RuntimeError("feed down")):
+                    first = collector.run("live")
+                self.assertIsNone(first["last_news_source_success_at"])
+                self.assertTrue(first["last_check_errors"])
+                self.assertEqual(json.loads(out.read_text(encoding="utf8"))["last_check_errors"],
+                                 first["last_check_errors"])
+
+                with patch.object(collector, "now_utc", return_value=T+collector.timedelta(minutes=1)), \
+                     patch.object(collector, "fetch_rss", return_value=[]):
+                    recovered = collector.run("live")
+                self.assertEqual(recovered["last_news_source_success_at"],
+                                 collector.iso(T+collector.timedelta(minutes=1)))
+                self.assertEqual(json.loads(out.read_text(encoding="utf8"))["last_check_errors"], [])
+                self.assertEqual(json.loads(out.read_text(encoding="utf8"))["last_news_source_success_at"],
+                                 recovered["last_news_source_success_at"])
+
+                with patch.object(collector, "now_utc", return_value=T+collector.timedelta(minutes=2)), \
+                     patch.object(collector, "fetch_rss", side_effect=RuntimeError("feed down")):
+                    failed_again = collector.run("live")
+                self.assertEqual(failed_again["last_news_source_success_at"],
+                                 recovered["last_news_source_success_at"])
+                self.assertTrue(json.loads(out.read_text(encoding="utf8"))["last_check_errors"])
+
 if __name__ == '__main__':
     unittest.main()
