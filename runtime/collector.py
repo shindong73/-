@@ -272,7 +272,6 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
         return False
     # Don't imply that a resignation demand or an appointment rumor is final.
     if (GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
-            and GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
             and UNCONFIRMED_APPOINTMENT_RE.search(title)):
         return False
     if confirmed_personnel_news(title):
