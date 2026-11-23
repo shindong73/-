@@ -457,5 +457,47 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]['source'], 'JTBC')
 
+    def test_naive_feed_timestamp_is_interpreted_as_utc(self):
+        self.assertEqual(
+            collector.iso(collector.parse_date("2026-11-23T01:03:00")),
+            "2026-11-23T01:03:00Z"
+        )
+        self.assertEqual(
+            collector.iso(collector.parse_date("Mon, 23 Nov 2026 01:03:00")),
+            "2026-11-23T01:03:00Z"
+        )
+
+    def test_earthquake_request_starts_concurrently_with_news_feeds(self):
+        from threading import Event
+        rss_started = Event()
+        quake_started = Event()
+
+        def quick_rss(*args):
+            rss_started.set()
+            self.assertTrue(quake_started.wait(5), "USGS was not started concurrently")
+            return []
+
+        def quick_quake(*args):
+            quake_started.set()
+            self.assertTrue(rss_started.wait(5), "RSS was not started concurrently")
+            return []
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root / "config.json"
+            cfg.write_text('{}', encoding='utf8')
+            store = root / "seen.json"
+            store.write_text('{"initialized":true,"seen":{}}', encoding='utf8')
+            out = root / "feed.json"
+            with patch.object(collector, "CONFIG_PATH", cfg), \
+                 patch.object(collector, "STORE_PATH", store), \
+                 patch.object(collector, "OUT_PATH", out), \
+                 patch.object(collector, "now_utc", return_value=T), \
+                 patch.object(collector, "fetch_rss", side_effect=quick_rss), \
+                 patch.object(collector, "fetch_quakes", side_effect=quick_quake):
+                data = collector.run("live")
+            self.assertEqual(data["items"], [])
+            self.assertEqual(data["update_interval_minutes"], 1)
+
 if __name__ == '__main__':
     unittest.main()
