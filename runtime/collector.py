@@ -388,6 +388,10 @@ def rewrite_headline(original: str) -> str | None:
     guarantee that every headline is paraphrasable or free of copyright issues.
     Never turn a prediction, quote, allegation, demand or intention into a fact.
     """
+    # Do not re-broadcast a broadcast programme's roundup or panel segment
+    # as though its title were a fresh, independently reported breaking event.
+    if re.match(r"^\[(?:[^\]]{0,35}(?:주요뉴스|맞수토론|종합뉴스|뉴스데스크|뉴스특보))\]", original):
+        return None
     title = BREAKING_RE.sub("", original, count=1).strip(" \t:：-·")
     title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) < 8 or len(title) > 130:
@@ -440,8 +444,9 @@ def rewrite_headline(original: str) -> str | None:
             response = re.sub(r"\s*(?:조치|대책)\s*$", "", response).strip()
             if concern and response:
                 return f"{speaker}, {concern}…{response}{' 촉구' if response.endswith('대응') else ' 대응 촉구'}"[:100]
-        # Do not substitute words inside a contested or otherwise complex quote.
-        return title
+        # Reproducing a contested quotation without a safe rewording is not
+        # appropriate for an auto-generated lower-third.
+        return None
 
     # A narrowly-scoped factual rewording, avoiding changes to who did what.
     paraphrases = (
@@ -469,9 +474,41 @@ def rewrite_headline(original: str) -> str | None:
                 if len(changed) <= 100:
                     return changed
 
-    # If a safe, meaningful rewrite is unavailable, retain the factual wording
-    # rather than manufacture a new claim. No copyright guarantee is implied.
-    return title[:110]
+    # Common bare factual headline: move the verified public institution to
+    # subject-first wording while preserving the outcome word verbatim.
+    # Only transform complete actions, never a quotation, prediction or demand.
+    if not re.search(r'[“”"「」『』‘’]', title):
+        for actor in (
+            "이재명 대통령", "이 대통령", "대통령실", "국무총리", "국무회의",
+            "국회", "정부", "청와대", "헌법재판소", "헌재", "대법원",
+            "금융위원회", "검찰", "특검", "교육부", "외교부", "통일부",
+            "행안부", "문체부"
+        ):
+            if title.startswith(actor + " "):
+                remainder = title[len(actor):].strip()
+                if (len(remainder) >= 4 and re.search(
+                        r"(?:가결|부결|통과|의결|선고|발표|공포|해임|임명|"
+                        r"지명|확정|선포|발족|체포|구속|기소|출범|설치|중단|"
+                        r"사퇴|사의\s*표명|결정|단행|교체|수용|거부)$",
+                        remainder)
+                        and not re.search(r"의혹|가능성|전망|요구|촉구|예정|검토", remainder)):
+                    suffix = actor[-1]
+                    particle = "이" if "가" <= suffix <= "힣" and (
+                        (ord(suffix) - 0xAC00) % 28) else "가"
+                    return f"{actor}{particle} {remainder}"[:100]
+
+    # Newsroom-specific personnel wrap: keep only the asserted appointment and
+    # cabinet reshuffle, not a copied multi-clause broadcaster headline.
+    if ("국정원장" in title and "개각" in title and
+            re.search(r"(?:여성\s*최초|최초\s*여성|첫\s*여성)", title)):
+        return ("개각 발표…여성 최초 국정원장 발탁"
+                if re.search(r"(?:개각\s*(?:발표|단행)|개각)", title)
+                else None)
+
+    # Fail closed: a word-for-word publisher title is less valuable than
+    # withholding a headline that cannot be safely summarized from the facts.
+    # Rewording still does NOT by itself guarantee copyright clearance.
+    return None
 
 
 def normalized_story(title: str) -> str:
