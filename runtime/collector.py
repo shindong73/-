@@ -87,7 +87,6 @@ WARNING_FEEDS = [
     )
 ]
 
-USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 # Select verified recent politics articles with or without a breaking badge.
 BREAKING_RE = re.compile(r"(?:\[\s*(?:(?:긴급\s*)?속보|긴급)\s*\]|\(\s*속보\s*\)|【\s*속보\s*】|^\s*(?:속보|긴급)\s*[:：])", re.I)
@@ -658,43 +657,8 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
 
 
 def fetch_quakes(current: datetime, settings: dict) -> list[dict]:
-    # Korea + nearby seas. The USGS regional rectangle can be edited in config.json.
-    r = settings["earthquake_region"]
-    args = {
-        "format": "geojson",
-        "starttime": (current - timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%S"),
-        "endtime": current.strftime("%Y-%m-%dT%H:%M:%S"),
-        "minmagnitude": settings["min_magnitude"],
-        "minlatitude": r["minlatitude"], "maxlatitude": r["maxlatitude"],
-        "minlongitude": r["minlongitude"], "maxlongitude": r["maxlongitude"],
-        "orderby": "time", "limit": 80,
-    }
-    feed = json.loads(get_url(USGS_QUERY + "?" + urlencode(args)).decode("utf-8"))
-    result = []
-    for feat in feed.get("features", []):
-        prop = feat.get("properties") or {}
-        mag = prop.get("mag")
-        milliseconds = prop.get("time")
-        if mag is None or milliseconds is None or float(mag) < settings["min_magnitude"]:
-            continue
-        event_time = datetime.fromtimestamp(int(milliseconds) / 1000, UTC)
-        if not current - timedelta(minutes=settings["earthquake_max_age_minutes"]) <= event_time <= current + timedelta(minutes=5):
-            continue
-        place = str(prop.get("place") or "한반도 인근").strip()[:78]
-        link = str(prop.get("url") or "")
-        if not link.startswith("https://earthquake.usgs.gov/"):
-            continue
-        result.append({
-            "id": "usgs-" + str(feat.get("id", "unknown")),
-            "kind": "earthquake",
-            "title": f"한반도 인근 규모 {float(mag):.1f} 지진 발생",
-            "source": "USGS",
-            "published_at": iso(event_time),
-            "link": link,
-            "is_test": False,
-        })
-    return result
-
+    """Retired USGS ingestion: never make network requests or issue live quake alerts."""
+    return []
 
 def make_test(mode: str, current: datetime, custom_text: str = "") -> dict:
     import uuid
@@ -723,10 +687,6 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "exclude_unfavorable_dem_news": True,
         "headline_max_age_minutes": 90,
         "warning_max_age_minutes": 15,
-        "earthquake_max_age_minutes": 90,
-        "min_magnitude": 4.0,
-        "earthquake_region": {"minlatitude": 31, "maxlatitude": 44,
-                              "minlongitude": 123, "maxlongitude": 133},
         "active_window_minutes": 16,
         "max_news_per_run": 3,
     }
@@ -748,6 +708,12 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     recent: list[dict] = []
     for old in prev.get("items", []):
         if not isinstance(old, dict) or not old.get("id") or not old.get("title"):
+            continue
+        # Purge old USGS or automated quake entries from the active queue.
+        # Their historical audit records stay untouched.
+        if (str(old.get("source", "")).strip().upper() == "USGS"
+                or str(old.get("id", "")).lower().startswith("usgs-")
+                or (old.get("kind") == "earthquake" and not old.get("is_test"))):
             continue
         when = parse_date(old.get("detected_at") or old.get("published_at"))
         # Apply safety checks to the ORIGINAL source headline, not a rewritten
@@ -785,10 +751,9 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
         # MBC direct feed currently delivers malformed XML; no longer block
         # the rest of collection waiting for its repeated parse failure.
-        # Query USGS alongside broadcaster RSS so a slow earthquake API
-        # does not add another full network timeout to the 1-minute cycle.
-        with ThreadPoolExecutor(max_workers=9) as pool:
-            quake_future = pool.submit(fetch_quakes, current, settings)
+        # USGS is permanently disabled: no earthquake API fetch or dispatch.
+        # Continue collecting national news and verified civil-defense warnings.
+        with ThreadPoolExecutor(max_workers=8) as pool:
             futures = {
                 pool.submit(fetch_rss, source, url, current, settings): (source, url)
                 for source, url in requests
@@ -800,20 +765,19 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     news_source_successes += 1
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
-            try:
-                earthquake = quake_future.result()
-            except Exception as exc:
-                earthquake = []
-                failures.append(f"USGS: {exc}")
         news.sort(key=lambda x: (
             int(x["kind"] == "warning"),
             int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
             x["published_at"]
         ), reverse=True)
-        candidate = news[:100] + earthquake
+        candidate = [
+            item for item in news[:100]
+            if str(item.get("source", "")).strip().upper() != "USGS"
+            and not str(item.get("id", "")).lower().startswith("usgs-")
+            and item.get("kind") != "earthquake"
+        ]
         candidate.sort(key=lambda x: (
             int(x["kind"] == "warning"),
-            int(x["kind"] == "earthquake"),
             int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
             x["published_at"]
         ), reverse=True)
