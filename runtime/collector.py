@@ -329,7 +329,7 @@ def important_politics_news(title: str) -> bool:
 def political_ok(title: str, *, block_negative: bool) -> bool:
     # A missile report is not a domestic civil-defense warning. The separate
     # verified warning branch is the only way to show an issued 경계경보.
-    if re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM|북한|北\\s*(?:미사일|발사)", title, re.I):
+    if re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM|북한|北\s*(?:미사일|발사)", title, re.I):
         return False
     if not POLITICAL_RE.search(title) or not domestic_politics_only(title):
         return False
