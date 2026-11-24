@@ -126,6 +126,23 @@ assert.equal(allowed({
   source_title:"[속보] 국회, 주요 법안 가결"
 }),true, "nonexclusive routine national law decision stays allowed");
 
+assert.equal(allowed({
+  kind:"politics",title:"핵심 규제 개편안 시행",
+  source_title:"핵심 규제 개편안 공식 시행 발표",ai_approved:true
+}),true,"AI-approved verified headline must bypass old domestic keyword list");
+assert.equal(allowed({
+  kind:"politics",title:"정부가 주요 예산 확정",
+  source_title:"[단독] 정부, 주요 예산 확정",ai_approved:true
+}),false,"explicit [단독] ban still blocks AI approval");
+assert.equal(allowed({
+  kind:"politics",title:"위원회 관련 후속 조치 발표",
+  source_title:"선관위, 부정선거 관련 후속 조치 발표",ai_approved:true
+}),false,"user election exclusion still blocks AI approval");
+assert.equal(allowed({
+  kind:"politics",title:"새로운 지진 속보",
+  source_title:"지진 발생 발표",source:"USGS",ai_approved:true
+}),false,"USGS source cannot use AI approval to bypass exclusion");
+
 assert.equal(allowed({kind:"weather",title:"전국 날씨"}),false,
   "unsupported feed types must not reach the overlay");
 assert.equal(allowed(null),false);

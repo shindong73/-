@@ -592,12 +592,17 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         # Excluded topics do not belong in any automatic ticker category.
         if excluded_ticker_topic(title):
             continue
-        # Don't let articles *about* warnings or missile launches slip into
-        # the ordinary politics ticker as a workaround.
+        # In AI mode, do NOT pre-judge importance from keywords, political
+        # names or a [속보] label. Let the model assess every verified,
+        # recent publisher headline. Retain only explicit user bans and
+        # the separate, strict civil-defense warning rules.
+        ai_editorial = settings.get("editorial_mode") == "ai"
         if not warning_title and (
                 "경계경보" in title.replace(" ", "")
-                or not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
-                or not important_politics_news(title)):
+                or re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM", title, re.I)
+                or (not ai_editorial and (
+                    not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+                    or not important_politics_news(title)))):
             continue
         counters["politics"] += 1
         published = parse_date(item.findtext("pubDate") or item.findtext("published") or
@@ -635,12 +640,16 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
                 continue
         counters["source"] += 1
         rewritten = warning_title or rewrite_headline(title)
-        if not rewritten:
+        # In AI mode, the editorial model gets to evaluate the story even when
+        # our conservative headline rewriter cannot safely paraphrase it.
+        # The final broadcast still requires a nonverbatim caption.
+        if not rewritten and not ai_editorial:
             continue
         items.append({
             "id": stable_id(source, link, title),
             "kind": "warning" if warning_title else "politics",
-            "title": rewritten,
+            "title": rewritten or title,
+            "caption_ready": bool(rewritten),
             "source_title": title,
             "source": source,
             "published_at": iso(published),
@@ -689,8 +698,10 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "warning_max_age_minutes": 15,
         "active_window_minutes": 16,
         "max_news_per_run": 3,
+        "editorial_mode": "rules",
     }
     settings = {**defaults, **settings}
+    ai_editorial = settings.get("editorial_mode") == "ai"
     current = now_utc()
     state = read_json(STORE_PATH, {"initialized": False, "seen": {}})
     seen = state.get("seen", {}) if isinstance(state.get("seen", {}), dict) else {}
@@ -730,10 +741,15 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     minutes=settings.get("warning_max_age_minutes", 15)):
                 continue
         if old.get("kind") == "politics":
-            if not political_ok(original_title, block_negative=True):
-                continue
-            if not (old.get("is_breaking") or important_politics_news(original_title)):
-                continue
+            if ai_editorial:
+                # Never replay a legacy unreviewed item when switching to AI.
+                if old.get("ai_approved") is not True:
+                    continue
+            else:
+                if not political_ok(original_title, block_negative=True):
+                    continue
+                if not (old.get("is_breaking") or important_politics_news(original_title)):
+                    continue
         if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)):
             recent.append(old)
     new = []
@@ -767,7 +783,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     failures.append(f"{source} feed error: {exc}")
         news.sort(key=lambda x: (
             int(x["kind"] == "warning"),
-            int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
+            int(confirmed_personnel_news(x["title"])) if (not ai_editorial and x["kind"] == "politics") else 0,
             x["published_at"]
         ), reverse=True)
         candidate = [
@@ -778,7 +794,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         ]
         candidate.sort(key=lambda x: (
             int(x["kind"] == "warning"),
-            int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
+            int(confirmed_personnel_news(x["title"])) if (not ai_editorial and x["kind"] == "politics") else 0,
             x["published_at"]
         ), reverse=True)
         # Optional AI desk editor. No API key means deterministic rules only.
@@ -800,14 +816,19 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             try:
                 ai_results = screen_news(
                     screening_input, api_key=ai_key,
-                    model=os.environ.get("GEMINI_NEWS_MODEL", "gemini-2.5-flash-lite")
+                    model=os.environ.get("GEMINI_NEWS_MODEL", "gemini-2.5-flash-lite"),
+                    checked_at=iso(current)
                 )
                 print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
             except Exception as exc:
                 failures.append("AI screening unavailable; political news postponed")
                 print(f"AI screening unavailable ({type(exc).__name__}); political items deferred")
         else:
-            print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
+            if ai_editorial:
+                failures.append("Gemini API key missing; AI editorial mode blocks new political headlines")
+                print("Gemini AI unavailable; AI-only political ticker paused")
+            else:
+                print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
         politics_added = 0
         duplicate_count = 0
         for item in candidate:
@@ -828,11 +849,18 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 seen[item["id"]] = iso(current)
                 duplicate_count += 1
                 continue
-            if ai_key and item["kind"] == "politics":
-                if item["id"] not in ai_results:
-                    # Retry next refresh if AI failed or the batch was full.
-                    continue
-                if not ai_results[item["id"]]:
+            if item["kind"] == "politics":
+                if ai_editorial or ai_key:
+                    if item["id"] not in ai_results:
+                        # No key, API failure, or batch overflow: fail closed.
+                        # Unreviewed political items must never go on air.
+                        continue
+                    if not ai_results[item["id"]]:
+                        seen[item["id"]] = iso(current)
+                        continue
+                if not item.get("caption_ready", True):
+                    # The AI approved the event but we could not safely rewrite
+                    # the publisher's headline without inventing information.
                     seen[item["id"]] = iso(current)
                     continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
@@ -840,6 +868,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 # be picked up by the next RSS check instead of silently lost.
                 continue
             seen[item["id"]] = iso(current)
+            if item["kind"] == "politics" and ai_editorial:
+                item = {**item, "ai_approved": True}
             if item["kind"] in ("politics", "warning"):
                 if item["kind"] == "politics":
                     politics_added += 1
