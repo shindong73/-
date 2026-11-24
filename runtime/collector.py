@@ -99,6 +99,36 @@ POLITICAL_RE = re.compile(
     r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
     r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사|인선|개각|국정원장|국가정보원|외교부|통일부|행안부|문체부"
 )
+# Explicit viewer-side editorial exclusions: do not broadcast National Election
+# Commission / election-fraud coverage, regardless of the publisher or whether
+# a shortened caption still contains the original terms.
+EXCLUDED_ELECTION_TOPIC_RE = re.compile(
+    r"선\s*관\s*위|선거\s*관리\s*위원회|부정\s*선거|선거\s*(?:조작|부정)|"
+    r"(?:사전\s*)?(?:투표|개표|투표지|투표함)\s*(?:조작|부정)|"
+    r"(?:조작|부정)\s*(?:투표|개표|투표지|투표함)"
+)
+
+# A local office/personnel reshuffle is usually not national breaking news.
+# Apply only when the headline includes a personnel action, so local-policy
+# decisions and high-impact incidents elsewhere in the ticker remain eligible.
+LOCAL_MINOR_PERSONNEL_POST_RE = re.compile(
+    r"경제자유구역청(?:장)?|부시장|부지사|부군수|부구청장|"
+    r"(?:시청|도청|군청|구청).{0,35}?(?:국장|과장|실장|본부장|센터장|사업소장)|"
+    r"(?:도시|관광|시설관리|교통|환경|개발|문화|체육)\s*(?:공사|공단|재단)"
+    r".{0,18}?(?:이사장|사장|대표|원장|본부장)|"
+    r"(?:시|도|군|구)\s*(?:산하|소속).{0,30}?"
+    r"(?:국장|과장|실장|본부장|센터장|이사장|사장|대표)"
+)
+
+
+def excluded_ticker_topic(title: str) -> bool:
+    """Reject excluded election topics and minor local personnel moves."""
+    return bool(EXCLUDED_ELECTION_TOPIC_RE.search(title) or (
+        GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
+        and LOCAL_MINOR_PERSONNEL_POST_RE.search(title)
+    ))
+
+
 # Conservative editorial exclusion: title-only rules have false positives and false negatives.
 # The overlay must not be described as neutral or comprehensive news coverage.
 DEM_ACTORS = re.compile(r"더불어민주당|민주당|이재명|정청래|김민석|대통령실|현\s*정부|집권여당")
@@ -199,7 +229,8 @@ def party_commentary(title: str) -> bool:
 
 
 def confirmed_personnel_news(title: str) -> bool:
-    return bool(domestic_politics_only(title)
+    return bool(not excluded_ticker_topic(title)
+                and domestic_politics_only(title)
                 and not party_commentary(title)
                 and GOVERNMENT_PERSONNEL_ACTOR_RE.search(title)
                 and GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
@@ -319,7 +350,7 @@ def confirmed_warning_caption(title: str) -> str | None:
 
 def important_politics_news(title: str) -> bool:
     # Routine visits, remarks and party reactions are not a breaking headline.
-    if party_commentary(title):
+    if excluded_ticker_topic(title) or party_commentary(title):
         return False
     return bool(confirmed_personnel_news(title)
                 or BREAKING_RE.search(title)
@@ -327,6 +358,8 @@ def important_politics_news(title: str) -> bool:
 
 
 def political_ok(title: str, *, block_negative: bool) -> bool:
+    if excluded_ticker_topic(title):
+        return False
     # A missile report is not a domestic civil-defense warning. The separate
     # verified warning branch is the only way to show an issued 경계경보.
     if re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM|북한|北\s*(?:미사일|발사)", title, re.I):
@@ -505,6 +538,9 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         counters["raw"] += 1
         title = clean_title(item.findtext("title") or item.findtext("{*}title") or "")
         warning_title = confirmed_warning_caption(title)
+        # Excluded topics do not belong in any automatic ticker category.
+        if excluded_ticker_topic(title):
+            continue
         # Don't let articles *about* warnings or missile launches slip into
         # the ordinary politics ticker as a workaround.
         if not warning_title and (
@@ -666,6 +702,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # lower-third. A concise approved headline can omit the actor, causing
         # the previously approved alert to disappear on the next refresh.
         original_title = old.get("source_title") or old.get("title", "")
+        if excluded_ticker_topic(original_title) or excluded_ticker_topic(old.get("title", "")):
+            continue
         if old.get("kind") == "warning":
             if confirmed_warning_caption(original_title) != old.get("title"):
                 continue
