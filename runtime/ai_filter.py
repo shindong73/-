@@ -83,7 +83,8 @@ def parse_decisions(result: dict, expected_ids: list[str]) -> dict[str, bool]:
         raise ValueError("Expected exactly one Gemini candidate")
     candidate = candidates[0]
     if candidate.get("finishReason") != "STOP":
-        raise ValueError("Gemini did not finish response")
+        reason = str(candidate.get("finishReason", "unknown"))[:40]
+        raise ValueError("Gemini did not finish response: " + reason)
     parts = candidate.get("content", {}).get("parts", [])
     if not isinstance(parts, list):
         raise ValueError("Invalid Gemini parts")
@@ -93,7 +94,8 @@ def parse_decisions(result: dict, expected_ids: list[str]) -> dict[str, bool]:
     )
     rows = json.loads(content).get("items")
     if not isinstance(rows, list) or len(rows) != len(expected_ids):
-        raise ValueError("Gemini returned missing or additional decisions")
+        count = len(rows) if isinstance(rows, list) else "invalid"
+        raise ValueError(f"Gemini decision count mismatch: {count}/{len(expected_ids)}")
     decisions = {}
     for row in rows:
         if (not isinstance(row, dict)
@@ -138,7 +140,7 @@ def screen_news(items: list[dict], *, api_key: str, model: str = DEFAULT_MODEL, 
         "generationConfig": {
             "candidateCount": 1,
             "temperature": 0,
-            "maxOutputTokens": 2048,
+            "maxOutputTokens": 4096,
             "responseMimeType": "application/json",
             "responseJsonSchema": SCHEMA
         }
