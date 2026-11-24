@@ -811,7 +811,9 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     continue
                 submitted.add(x["id"])
                 screening_input.append(x)
-                if len(screening_input) >= 24:
+                # Smaller batches stay within structured-JSON output bounds.
+                # New articles that overflow remain eligible next minute.
+                if len(screening_input) >= 12:
                     break
             try:
                 ai_results = screen_news(
@@ -822,7 +824,10 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
             except Exception as exc:
                 failures.append("AI screening unavailable; political news postponed")
-                print(f"AI screening unavailable ({type(exc).__name__}); political items deferred")
+                # Error details are limited to safe exception class/message;
+                # never print raw model output, article titles or API secrets.
+                detail = str(exc)[:130] if isinstance(exc, ValueError) else ""
+                print(f"AI screening unavailable ({type(exc).__name__}: {detail}); political items deferred")
         else:
             if ai_editorial:
                 failures.append("Gemini API key missing; AI editorial mode blocks new political headlines")
