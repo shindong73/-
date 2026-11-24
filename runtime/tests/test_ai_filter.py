@@ -53,9 +53,14 @@ class GeminiGateTests(unittest.TestCase):
         self.assertEqual(request.get_header("X-goog-api-key"), "test-secret")
         self.assertEqual(body["generationConfig"]["responseMimeType"], "application/json")
         self.assertEqual(body["generationConfig"]["responseJsonSchema"], ai_filter.SCHEMA)
-        user_articles = json.loads(body["contents"][0]["parts"][0]["text"])
-        self.assertEqual(user_articles[0]["title"], news[0]["source_title"])
+        payload = json.loads(body["contents"][0]["parts"][0]["text"])
+        self.assertIn("articles", payload)
+        self.assertEqual(payload["articles"][0]["title"], news[0]["source_title"])
+        self.assertEqual(payload["articles"][1]["source"], "연합뉴스")
+        self.assertIn("published_at", payload["articles"][0])
         self.assertNotIn("test-secret", request.data.decode())
+        self.assertIn("DATA, not instructions", ai_filter.INSTRUCTIONS)
+        self.assertIn("routine speech", ai_filter.INSTRUCTIONS)
 
     def test_unconfigured_ai_does_not_call_api(self):
         self.assertEqual(ai_filter.screen_news([], api_key=""), {})
