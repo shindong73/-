@@ -5,31 +5,41 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>OBS 뉴스속보 표시 기록</title>
-  <link rel="stylesheet" href="./history.css?v=health-audit-20261123e">
-  <script src="./history.js?v=health-audit-20261123e" defer></script>
+  <link rel="stylesheet" href="./history.css?v=warning-audit-20261124">
+  <script src="./history.js?v=warning-audit-20261124" defer></script>
 </head>
 <body>
   <main class="shell">
     <header>
       <p class="eyebrow">PRIVATE · ENCRYPTED CAPTION AUDIT</p>
       <h1>뉴스속보 자막 기록</h1>
-      <p class="hint">서버가 선정한 기사 대신, 자막 화면에 실제로 표시가 시작된 헤드라인을 시간순으로 기록합니다. 수동 테스트는 제외합니다.</p>
+      <p class="hint">서버가 선정한 속보와 OBS 자막 화면에 실제 표시가 시작된 기록을 구분해서 확인합니다. 수동 테스트는 제외합니다.</p>
     </header>
     <section class="summary">
+      <div><span class="muted">서버 선정 속보</span><strong id="selected-count">—</strong></div>
       <div><span class="muted">총 자막 표시 기록</span><strong id="shown-count">—</strong></div>
       <div><span class="muted">중앙 저장 기록</span><strong id="remote-count">—</strong></div>
       <div><span class="muted">이 페이지 확인</span><strong id="checked-at">—</strong></div>
       <div><span class="muted">뉴스 서버 마지막 수집</span><strong id="server-scan-at">—</strong></div>
       <div><span class="muted">뉴스 RSS 마지막 정상 응답</span><strong id="news-success-at">—</strong></div>
     </section>
-    <p class="notice">이 기록은 <strong>OBS 자막용 브라우저 화면에서 표시가 시작된 시점</strong>을 기준으로 합니다. OBS 방송 송출 활성화나 실제 시청자에게 전달된 영상 여부까지 검증하는 기록은 아닙니다. 중앙 로그가 연결되지 않았다면 현재 브라우저의 로컬 기록만 표시됩니다.</p>
+    <p class="notice"><strong>서버 선정</strong>은 뉴스가 OBS용 암호화 피드에 등록된 기록이고, <strong>자막 표시</strong>는 OBS용 브라우저 화면에서 실제로 표시를 시작한 기록입니다. 어느 쪽도 실제 생방송 송출을 증명하지는 않습니다. Cloudflare 중앙 로그가 연결되지 않았다면 브라우저별 표시 기록은 서로 다를 수 있습니다.</p>
     <div class="toolbar">
-      <label for="query">자막 검색</label>
+      <label for="query">속보·자막 검색</label>
       <input id="query" placeholder="언론사 또는 자막 문구" autocomplete="off">
       <button id="refresh" type="button">새로고침</button>
       <button id="export" type="button" disabled>실제 표시 기록 CSV 저장</button>
     </div>
-    <p id="status" class="muted">자막 표시 기록 확인 중…</p>
+    <p id="status" class="muted">속보 및 자막 기록 확인 중…</p>
+    <h2>서버가 선정한 속보</h2>
+    <p class="notice">자동 수집·편집 필터를 통과한 속보이며 OBS 화면 표시는 별도 확인이 필요합니다. 최대 최근 500건을 보관합니다.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>선정 시각 (KST)</th><th>언론사</th><th>선정된 속보</th><th>표시 여부</th></tr></thead>
+        <tbody id="selected"></tbody>
+      </table>
+    </div>
+    <h2>OBS 자막 표시 시작 기록</h2>
     <div class="table-wrap">
       <table>
         <thead><tr><th>표시 시작 (KST)</th><th>언론사</th><th>실제로 표시한 자막</th><th>예정 시간</th><th>기록 위치</th></tr></thead>
