@@ -519,6 +519,11 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             ages_minutes.append(round((current - published).total_seconds()/60))
         if not published or not (current - timedelta(minutes=settings["headline_max_age_minutes"]) <= published <= current + timedelta(minutes=5)):
             continue
+        # Never replay an old civil-defense issuance as if it were a current
+        # warning. Political headlines may use the longer general news TTL.
+        if warning_title and published < current - timedelta(
+                minutes=settings.get("warning_max_age_minutes", 15)):
+            continue
         counters["recent"] += 1
         link = (item.findtext("link") or "").strip()
         if not link:
@@ -629,6 +634,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     defaults = {
         "exclude_unfavorable_dem_news": True,
         "headline_max_age_minutes": 90,
+        "warning_max_age_minutes": 15,
         "earthquake_max_age_minutes": 90,
         "min_magnitude": 4.0,
         "earthquake_region": {"minlatitude": 31, "maxlatitude": 44,
@@ -662,6 +668,10 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         original_title = old.get("source_title") or old.get("title", "")
         if old.get("kind") == "warning":
             if confirmed_warning_caption(original_title) != old.get("title"):
+                continue
+            published = parse_date(old.get("published_at"))
+            if not published or published < current - timedelta(
+                    minutes=settings.get("warning_max_age_minutes", 15)):
                 continue
         if old.get("kind") == "politics":
             if not political_ok(original_title, block_negative=True):
