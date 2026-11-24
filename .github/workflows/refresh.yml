@@ -26,7 +26,10 @@ permissions:
   pages: write
   id-token: write
 concurrency:
-  group: refresh-renderer
+  # Minute dispatches may replace another pending collection run.
+  # Keep deployments in a distinct group so a later minute tick cannot
+  # cancel a queued push that must publish changed web/code assets.
+  group: refresh-renderer-${{ github.event_name == 'push' && 'code-deploy' || 'collection' }}
   cancel-in-progress: false
 jobs:
   update-and-deploy:
