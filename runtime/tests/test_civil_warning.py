@@ -76,6 +76,50 @@ class CivilWarningTests(unittest.TestCase):
             [("warning", "울릉도 경계경보 발령"),
              ("warning", "울릉도 경계경보 해제")])
 
+    def test_stale_warning_not_newly_selected(self):
+        # An article from 40 minutes ago cannot look like a new active alert.
+        rss = """<rss><channel><item>
+          <title>[속보] 울릉도 경계경보 발령</title>
+          <pubDate>Sun, 22 Nov 2026 00:20:00 GMT</pubDate>
+          <link>https://news.google.com/rss/articles/old-alert</link>
+          <source>KBS 뉴스</source>
+        </item></channel></rss>"""
+        with patch.object(collector, "get_url", return_value=rss.encode("utf-8")):
+            found = collector.fetch_rss(
+                "KBS", collector.WARNING_FEEDS[0][1], T,
+                {**CFG, "warning_max_age_minutes": 15})
+        self.assertEqual(found, [])
+
+    def test_stale_active_warning_is_not_carried_over(self):
+        import json
+        import tempfile
+        from datetime import timedelta
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / "config.json"
+            config.write_text('{"warning_max_age_minutes":15}', encoding="utf8")
+            seen = root / "seen.json"
+            seen.write_text('{"initialized":true,"seen":{}}', encoding="utf8")
+            out = root / "payload.json"
+            old = {
+                "id":"old-warning-1", "kind":"warning",
+                "title":"울릉도 경계경보 발령",
+                "source_title":"[속보] 울릉도 경계경보 발령",
+                "source":"KBS",
+                "published_at":collector.iso(T-timedelta(minutes=40)),
+                "detected_at":collector.iso(T-timedelta(minutes=1))
+            }
+            out.write_text(json.dumps({"items":[old], "history":[]},
+                                      ensure_ascii=False), encoding="utf8")
+            with patch.object(collector,"CONFIG_PATH",config), \
+                 patch.object(collector,"STORE_PATH",seen), \
+                 patch.object(collector,"OUT_PATH",out), \
+                 patch.object(collector,"now_utc",return_value=T), \
+                 patch.object(collector,"fetch_rss",return_value=[]), \
+                 patch.object(collector,"fetch_quakes",return_value=[]):
+                result = collector.run("live")
+            self.assertEqual(result["items"], [])
+
     def test_issuance_is_not_deduplicated_as_cancellation(self):
         self.assertFalse(collector.same_story(
             "울릉도 경계경보 발령", "울릉도 경계경보 해제"))
