@@ -6,7 +6,7 @@
   // Fixed first-party Cloudflare endpoint; never send credentials to query-provided hosts.
   const LOG_API = new URLSearchParams(location.search).get('logApi') === 'off'
     ? '' : 'https://shindong-news-minute-trigger.kkireutv.workers.dev/caption-log';
-  let remote = [], local = [], displayed = [];
+  let remote = [], local = [], displayed = [], selected = [];
   let refreshing = false, remoteError = '', remoteLimited = false;
   let scanError = '', scanAt = '', newsSuccessAt = '', scanFailures = [];
   let captionKeyPromise = null;
@@ -94,6 +94,28 @@
       const td=cell(tr,'표시된 자막 기록이 없습니다.');
       td.colSpan=5; shown.appendChild(tr);
     }
+    // The encrypted feed also carries an immutable server-selection trail.
+    // Unlike the display log, selection is NOT proof that OBS showed it.
+    const selectedRows=selected.filter(r => !q ||
+      String(r.title||'').toLowerCase().includes(q) ||
+      String(r.source||'').toLowerCase().includes(q));
+    const selectedBody=$('selected');
+    selectedBody.replaceChildren();
+    const displayedIds=new Set(displayed.map(r=>r.id));
+    for(const r of selectedRows) {
+      const tr=document.createElement('tr');
+      cell(tr,dateKst(r.detected_at || r.published_at));
+      cell(tr,r.source || '—');
+      cell(tr,r.title);
+      cell(tr,displayedIds.has(r.id) ? '자막 표시 시작 확인' : '서버 선정 · 자막 표시 미확인');
+      selectedBody.appendChild(tr);
+    }
+    if(!selectedRows.length) {
+      const tr=document.createElement('tr');
+      const td=cell(tr,'서버가 선정한 속보 기록이 없습니다.');
+      td.colSpan=4; selectedBody.appendChild(tr);
+    }
+    $('selected-count').textContent=selected.length+'건';
     $('shown-count').textContent=displayed.length+'건';
     $('remote-count').textContent=remote.length+'건';
     $('export').disabled=!displayed.length;
@@ -168,6 +190,12 @@
       scanAt=data.last_scan_at || data.generated_at || '';
       newsSuccessAt=data.last_news_source_success_at || '';
       scanFailures=Array.isArray(data.last_check_errors) ? data.last_check_errors : [];
+      // Keep the authoritative selected feed separate from actual display logs.
+      // The collection trail is visible even if the optional KV binding is absent.
+      selected=(Array.isArray(data.delivery_log) ? data.delivery_log : [])
+        .filter(x=>x && x.id && x.title && !x.is_test)
+        .sort((a,b)=>Date.parse(b.detected_at || b.published_at) -
+                     Date.parse(a.detected_at || a.published_at));
     } catch(e) {scanError=e?.message || '연결 오류';}
   }
   async function refresh() {
