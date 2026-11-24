@@ -302,12 +302,14 @@ def confirmed_warning_caption(title: str) -> str | None:
     if not re.search(r"경계경보.{0,55}(?:발령|해제|정정)|(?:발령|해제|정정).{0,55}경계경보", clean):
         return None
     # Require a concrete Korean locality rather than a generic military event.
-    location = WARNING_LOCATION_RE.search(clean)
-    if not location:
+    locations = [match for match in WARNING_LOCATION_RE.finditer(clean)
+                 if not match.group().startswith(("북한", "러시아"))]
+    if not locations:
         return None
-    area = location.group()
-    if area.startswith(("북한", "러시아")):
-        return None
+    alert_pos = clean.find("경계경보")
+    # Prefer the locality closest to the actual warning rather than a foreign
+    # military actor mentioned in a preceding explanatory clause.
+    area = min(locations, key=lambda m: abs(m.start() - alert_pos)).group()
     if area in ("울릉도", "울릉군"):
         area = "울릉도"
     # A combined "issued and lifted" story reports the most recent state.
@@ -325,6 +327,10 @@ def important_politics_news(title: str) -> bool:
 
 
 def political_ok(title: str, *, block_negative: bool) -> bool:
+    # A missile report is not a domestic civil-defense warning. The separate
+    # verified warning branch is the only way to show an issued 경계경보.
+    if re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM|북한|北\\s*(?:미사일|발사)", title, re.I):
+        return False
     if not POLITICAL_RE.search(title) or not domestic_politics_only(title):
         return False
     if len(title) < 8 or re.search(r"\[광고\]|\[연예\]|오늘의\s*운세|야구\s*경기", title):
@@ -700,7 +706,9 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 earthquake = []
                 failures.append(f"USGS: {exc}")
         news.sort(key=lambda x: (
-            int(confirmed_personnel_news(x["title"])), x["published_at"]
+            int(x["kind"] == "warning"),
+            int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
+            x["published_at"]
         ), reverse=True)
         candidate = news[:100] + earthquake
         candidate.sort(key=lambda x: (
