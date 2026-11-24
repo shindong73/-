@@ -19,10 +19,17 @@ Decide whether each supplied item is an important, concrete South Korean
 political or government news EVENT that should go to a breaking-news ticker.
 Use only the supplied headline and publisher. Do not invent details.
 Apply these same editorial standards to every party, regardless of ideology.
-Approve: an actual government minister's/official's stated resignation;
-appointment, dismissal or confirmation of a high official; enacted/definitively
-passed laws, major court rulings, election results, or an urgent concrete
-government or parliamentary decision clearly reported as occurring.
+Approve: an actual national cabinet minister's/vice-minister's stated
+resignation; an appointment/dismissal of a nationally significant official;
+enacted/definitively passed laws, major court rulings, national election
+results, or an urgent concrete government/parliamentary decision.
+Reject every National Election Commission (선관위, 선거관리위원회) story
+and claims or controversies about 부정선거, vote/count manipulation,
+even if a related arrest, ruling or announcement took place.
+Reject routine personnel moves at provincial, city, county, municipal,
+subordinate or regional special-purpose agencies (for example:
+울산시 울산경제자유구역청장 해임).
+The issue must have clear national significance.
 Reject: a party's opinion, reaction, criticism, counterstatement, press
 commentary, a quoted slogan, a resignation DEMAND rather than the resignation
 itself, a vague forecast, rumors, and routine press conferences or visits.
