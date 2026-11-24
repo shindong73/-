@@ -99,6 +99,14 @@ POLITICAL_RE = re.compile(
     r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
     r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사|인선|개각|국정원장|국가정보원|외교부|통일부|행안부|문체부"
 )
+# Source labels marked as exclusive are deliberately excluded even if they
+# report an otherwise eligible concrete event. The check runs on the original
+# publisher headline before any paraphrase or category selection.
+EXCLUSIVE_TAG_RE = re.compile(
+    r"[\[［【(（]\s*단독(?:\s*보도)?\s*[\]］】)）]"
+)
+
+
 # Explicit viewer-side editorial exclusions: do not broadcast National Election
 # Commission / election-fraud coverage, regardless of the publisher or whether
 # a shortened caption still contains the original terms.
@@ -122,8 +130,9 @@ LOCAL_MINOR_PERSONNEL_POST_RE = re.compile(
 
 
 def excluded_ticker_topic(title: str) -> bool:
-    """Reject excluded election topics and minor local personnel moves."""
-    return bool(EXCLUDED_ELECTION_TOPIC_RE.search(title) or (
+    """Reject exclusive tags, election topics and minor local personnel."""
+    return bool(EXCLUSIVE_TAG_RE.search(title)
+        or EXCLUDED_ELECTION_TOPIC_RE.search(title) or (
         GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
         and LOCAL_MINOR_PERSONNEL_POST_RE.search(title)
     ))
