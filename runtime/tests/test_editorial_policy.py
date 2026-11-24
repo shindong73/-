@@ -13,6 +13,41 @@ CFG = {"headline_max_age_minutes": 180, "exclude_unfavorable_dem_news": True}
 
 
 class EditorialPolicyTests(unittest.TestCase):
+    def test_exclusive_badges_excluded_regardless_of_topic(self):
+        exclusive = (
+            "[단독] 국회, 예산안 최종 가결",
+            "【단독】 이재명 대통령 신임 장관 지명",
+            "(단독) 정부 주요 정책 발표",
+            "［ 단독 ］ 울릉도 경계경보 발령",
+            "[속보] [단독 보도] 국회 주요 법안 통과",
+            "국회 주요 법안 가결 [단독]",
+        )
+        for title in exclusive:
+            with self.subTest(title=title):
+                self.assertTrue(collector.excluded_ticker_topic(title))
+                self.assertFalse(collector.political_ok(title, block_negative=False))
+                self.assertFalse(collector.important_politics_news(title))
+                self.assertFalse(collector.confirmed_personnel_news(title))
+        self.assertFalse(collector.excluded_ticker_topic(
+            "[속보] 국회, 예산안 최종 가결"))
+        self.assertFalse(collector.excluded_ticker_topic(
+            "[속보] 단독 처리된 법안 공개"))
+
+    def test_exclusive_tagged_warning_is_not_selected(self):
+        warning = "[단독] 울릉도 경계경보 발령"
+        self.assertIsNotNone(collector.confirmed_warning_caption(warning))
+        # Classification alone is insufficient: exclusions apply before
+        # category selection and must block the resulting warning item.
+        original = (
+            "<rss><channel><item><title>[단독] 울릉도 경계경보 발령</title>"
+            "<pubDate>Tue, 24 Nov 2026 00:39:00 GMT</pubDate>"
+            "<link>https://news.google.com/rss/articles/exclusive</link>"
+            "<source>KBS 뉴스</source></item></channel></rss>"
+        )
+        with patch.object(collector, "get_url", return_value=original.encode("utf-8")):
+            self.assertEqual(collector.fetch_rss(
+                "KBS", collector.WARNING_FEEDS[0][1], NOW, CFG), [])
+
     def test_election_commission_topics_are_always_excluded(self):
         samples = (
             "특검 출범 후 첫 구속…나머지 선관위 직원 7명 기각",
