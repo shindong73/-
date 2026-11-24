@@ -184,8 +184,24 @@
   // Same policy on the browser, to stop replay of previously queued commentary.
   const partyOpinion = /(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당)\s*(?:대변인|대표|원내대표)?\s*(?:[:,：，]\s*)?["“‘'「『]/;
   const partyReaction = /(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당).{0,55}?(?:논평|반박|비판|비난|규탄|공세|책임론|공방|못\s*믿|끝날\s*일\s*아냐|끝날\s*일\s*아니|끝날\s*문제\s*아니|사퇴로\s*끝날|사퇴만으론|사퇴에\s*그쳐선|책임\s*물어야)/;
+  // Defense in depth: old queued and shortened headlines must not bypass
+  // user-excluded election topics or low-impact local personnel news.
+  const excludedElectionTopic = /선\s*관\s*위|선거\s*관리\s*위원회|부정\s*선거|선거\s*(?:조작|부정)|(?:사전\s*)?(?:투표|개표|투표지|투표함)\s*(?:조작|부정)|(?:조작|부정)\s*(?:투표|개표|투표지|투표함)/;
+  const minorLocalPost = /경제자유구역청(?:장)?|부시장|부지사|부군수|부구청장|(?:시청|도청|군청|구청).{0,35}?(?:국장|과장|실장|본부장|센터장|사업소장)|(?:도시|관광|시설관리|교통|환경|개발|문화|체육)\s*(?:공사|공단|재단).{0,18}?(?:이사장|사장|대표|원장|본부장)|(?:시|도|군|구)\s*(?:산하|소속).{0,30}?(?:국장|과장|실장|본부장|센터장|이사장|사장|대표)/;
+  const personnelAction = /사의|사표|사직서|사퇴|사임|경질|해임|교체|발탁|내정|지명|임명/;
+  function excludedHeadline(text) {
+    return excludedElectionTopic.test(text) ||
+      (personnelAction.test(text) && minorLocalPost.test(text));
+  }
+  function normalizedPublisherTitle(text) {
+    return String(text || '')
+      .replace(/^\s*(?:\[\s*(?:속보|긴급)\s*\]|【\s*속보\s*】|(?:속보|긴급)\s*[:：])\s*/,'')
+      .replace(/\s+/g,' ').trim();
+  }
   function allowBroadcast(item) {
     if (!item || typeof item.title !== 'string' || !item.title.trim()) return false;
+    const sourceTitle = typeof item.source_title === 'string' ? item.source_title : '';
+    if (excludedHeadline(item.title) || excludedHeadline(sourceTitle)) return false;
     if (item.kind === 'warning') {
       // A warning has a sanitized regional headline. Military or missile
       // developments must never bypass this gate as a generic alert.
@@ -198,6 +214,10 @@
         && !/(?:훈련|모의|가상|예고|예정|가능성|검토|테스트)/.test(original);
     }
     if (item.kind !== 'politics') return item.kind === 'earthquake';
+    // Never display a publisher-original sentence as the scrolling headline.
+    // Legacy feed entries without an original cannot prove their rewrite.
+    if (!sourceTitle || normalizedPublisherTitle(sourceTitle) ===
+        normalizedPublisherTitle(item.title)) return false;
     // Apply the browser's last-resort editorial safety gate to the ORIGINAL
     // publisher headline. The broadcast rewrite can omit the Korean actor,
     // even when the server correctly approved a major domestic event.

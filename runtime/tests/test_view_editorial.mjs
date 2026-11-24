@@ -29,9 +29,47 @@ assert.equal(allowed({
   source_title:"미국 의회 선거 결과 발표"
 }),false, "foreign source must not become a domestic headline");
 
-assert.equal(allowed({kind:"politics",title:"국회 예산안 가결"}),true,
-  "old approved items without source_title still work");
+assert.equal(allowed({kind:"politics",title:"국회 예산안 가결"}),false,
+  "legacy unsourced articles must not replay publisher originals");
 assert.equal(allowed({kind:"earthquake",title:"한반도 인근 규모 4.3 지진 발생"}),true);
+
+assert.equal(allowed({
+  kind:"politics",
+  title:"특검 출범 후 첫 구속…나머지 선관위 직원 7명 기각",
+  source_title:"특검 출범 후 첫 구속…나머지 선관위 직원 7명 기각"
+}),false, "no election commission story can appear");
+assert.equal(allowed({
+  kind:"politics",
+  title:"특검 출범…직원 7명 기각",
+  source_title:"[속보] 특검 출범 후 첫 구속…선관위 직원 7명 기각"
+}),false, "source title exclusion must survive paraphrase");
+assert.equal(allowed({
+  kind:"politics",
+  title:"정부가 선거 조작 수사 발표",
+  source_title:"[속보] 정부, 부정선거 조사"
+}),false, "fraud headlines must be excluded");
+assert.equal(allowed({
+  kind:"politics",
+  title:"울산시가 이경식 울산경제자유구역청장 해임",
+  source_title:"[속보] 울산시, 이경식 울산경제자유구역청장 해임"
+}),false, "minor local-government appointment cannot reach OBS");
+assert.equal(allowed({
+  kind:"politics",
+  title:"이 대통령이 신임 교육부 장관 지명",
+  source_title:"[속보] 이 대통령, 신임 교육부 장관 지명"
+}),true, "national cabinet changes remain eligible");
+assert.equal(allowed({
+  kind:"politics",
+  title:"국회 예산안 가결",
+  source_title:"[속보] 국회 예산안 가결"
+}),false, "removing a breaking prefix is not a substantive rewrite");
+assert.equal(allowed({
+  kind:"politics",
+  title:"국회가 예산안 가결",
+  source_title:"[속보] 국회, 예산안 가결",
+  source:"KBS"
+}),true, "reworded headline is allowed regardless of internal audit source");
+
 
 assert.equal(allowed({
   kind:"warning",title:"울릉도 경계경보 발령",
