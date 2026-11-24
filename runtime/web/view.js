@@ -186,6 +186,17 @@
   const partyReaction = /(?:국민의힘|국힘|더불어민주당|민주당|민주|조국혁신당|혁신당).{0,55}?(?:논평|반박|비판|비난|규탄|공세|책임론|공방|못\s*믿|끝날\s*일\s*아냐|끝날\s*일\s*아니|끝날\s*문제\s*아니|사퇴로\s*끝날|사퇴만으론|사퇴에\s*그쳐선|책임\s*물어야)/;
   function allowBroadcast(item) {
     if (!item || typeof item.title !== 'string' || !item.title.trim()) return false;
+    if (item.kind === 'warning') {
+      // A warning has a sanitized regional headline. Military or missile
+      // developments must never bypass this gate as a generic alert.
+      const original = typeof item.source_title === 'string' && item.source_title.trim()
+        ? item.source_title : item.title;
+      return /^[가-힣0-9·\\s-]{2,35} 경계경보 (?:발령|해제|정정)$/.test(item.title)
+        && /경계\\s*경보/.test(original)
+        && /(?:발령|해제|정정)/.test(original)
+        && !/(?:북한|미사일|탄도탄|발사체|ICBM)/.test(item.title)
+        && !/(?:훈련|모의|가상|예고|예정|가능성|검토|테스트)/.test(original);
+    }
     if (item.kind !== 'politics') return item.kind === 'earthquake';
     // Apply the browser's last-resort editorial safety gate to the ORIGINAL
     // publisher headline. The broadcast rewrite can omit the Korean actor,
@@ -239,12 +250,13 @@
     if (!allowBroadcast(item)) return;
     if (!item || typeof item.id !== 'string' || typeof item.title !== 'string'
       || !item.id || !item.title || seen[item.id] || queued.has(item.id)) return;
-    if (!['politics','earthquake'].includes(item.kind)) return;
+    if (!['politics','earthquake','warning'].includes(item.kind)) return;
     const discovered = Date.parse(item.detected_at || item.published_at);
     if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS || discovered > Date.now() + 300000) return;
     queued.add(item.id);
     queue.push(item);
-    queue.sort((a,b) => Number(b.kind==='earthquake') - Number(a.kind==='earthquake')
+    queue.sort((a,b) => Number(b.kind==='warning') - Number(a.kind==='warning')
+      || Number(b.kind==='earthquake') - Number(a.kind==='earthquake')
       || Date.parse(a.detected_at || a.published_at) - Date.parse(b.detected_at || b.published_at));
   }
   function fromBase64(b64) {
