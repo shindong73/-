@@ -71,6 +71,22 @@ FOCUSED_FEEDS = [
     )
 ]
 
+# Domestic civil-defense warning discovery. These queries never promote a
+# missile launch/military activity story unless a Korean area's 경계경보 was
+# actually issued, lifted, or corrected in the verified publisher headline.
+WARNING_FEEDS = [
+    (source, "https://news.google.com/rss/search?" + urlencode({
+        "q": f'site:{domain} ("경계경보" OR "경계 경보") when:6h',
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+    }))
+    for source, domain in (
+        ("KBS", "news.kbs.co.kr"),
+        ("MBC", "imnews.imbc.com"),
+        ("JTBC", "news.jtbc.co.kr"),
+        ("연합뉴스", "yna.co.kr"),
+    )
+]
+
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 
 # Select verified recent politics articles with or without a breaking badge.
@@ -259,6 +275,46 @@ MAJOR_DECISION_RE = re.compile(
 )
 
 
+# This is intentionally much narrower than domestic military coverage.
+# Only a confirmed area-level 경계경보 change is an eligible alert.
+WARNING_LOCATION_RE = re.compile(
+    r"울릉도|울릉군|독도|백령도|연평도|연천군|파주시|철원군|고성군|강화군|"
+    r"서울|부산|인천|대구|광주|대전|울산|세종|경기도|강원도|충청북도|충청남도|"
+    r"전라북도|전라남도|경상북도|경상남도|제주도|경기|강원|충북|충남|전북|"
+    r"전남|경북|경남|제주|(?:[가-힣]{2,8})(?:시|군)"
+)
+WARNING_UNCONFIRMED_RE = re.compile(
+    r"훈련|모의|가상|예행|테스트|예고|예정|가능성|검토|대비|시뮬레이션|"
+    r"오보|오발령|잘못\s*발령|발령\s*요청|발령\s*촉구|발령\s*시|"
+    r"발령\s*때|발령\s*한다면|발령\s*방안"
+)
+
+
+def confirmed_warning_caption(title: str) -> str | None:
+    """Only a reported domestic 경계경보 state change, never a missile headline.
+
+    Strip any military explanation and retain just the region and alert state.
+    This is an editorial news overlay, not a replacement for public alerts.
+    """
+    clean = clean_title(BREAKING_RE.sub("", title, count=1)).replace("경계 경보", "경계경보")
+    if "경계경보" not in clean or WARNING_UNCONFIRMED_RE.search(clean):
+        return None
+    if not re.search(r"경계경보.{0,55}(?:발령|해제|정정)|(?:발령|해제|정정).{0,55}경계경보", clean):
+        return None
+    # Require a concrete Korean locality rather than a generic military event.
+    location = WARNING_LOCATION_RE.search(clean)
+    if not location:
+        return None
+    area = location.group()
+    if area.startswith(("북한", "러시아")):
+        return None
+    if area in ("울릉도", "울릉군"):
+        area = "울릉도"
+    # A combined "issued and lifted" story reports the most recent state.
+    state = "해제" if "해제" in clean else ("정정" if "정정" in clean else "발령")
+    return f"{area} 경계경보 {state}"
+
+
 def important_politics_news(title: str) -> bool:
     # Routine visits, remarks and party reactions are not a breaking headline.
     if party_commentary(title):
@@ -399,7 +455,7 @@ def normalized_story(title: str) -> str:
 def same_story(a: str, b: str) -> bool:
     """Conservative same-event test across different broadcaster headlines."""
     # Contradictory event outcomes must not be silently treated as duplicates.
-    contradictory = (("추진", "철회"), ("추진", "중단"), ("가결", "부결"),
+    contradictory = (("발령", "해제"), ("추진", "철회"), ("추진", "중단"), ("가결", "부결"),
                      ("통과", "부결"), ("승인", "거부"), ("확정", "검토"),
                      ("찬성", "반대"), ("기소", "무혐의"))
     for left, right in contradictory:
@@ -442,7 +498,12 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
     for item in candidates:
         counters["raw"] += 1
         title = clean_title(item.findtext("title") or item.findtext("{*}title") or "")
-        if (not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+        warning_title = confirmed_warning_caption(title)
+        # Don't let articles *about* warnings or missile launches slip into
+        # the ordinary politics ticker as a workaround.
+        if not warning_title and (
+                "경계경보" in title.replace(" ", "")
+                or not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
                 or not important_politics_news(title)):
             continue
         counters["politics"] += 1
@@ -475,12 +536,12 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
             if not (host == expected or host.endswith("." + expected)):
                 continue
         counters["source"] += 1
-        rewritten = rewrite_headline(title)
+        rewritten = warning_title or rewrite_headline(title)
         if not rewritten:
             continue
         items.append({
             "id": stable_id(source, link, title),
-            "kind": "politics",
+            "kind": "warning" if warning_title else "politics",
             "title": rewritten,
             "source_title": title,
             "source": source,
@@ -593,6 +654,9 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # lower-third. A concise approved headline can omit the actor, causing
         # the previously approved alert to disappear on the next refresh.
         original_title = old.get("source_title") or old.get("title", "")
+        if old.get("kind") == "warning":
+            if confirmed_warning_caption(original_title) != old.get("title"):
+                continue
         if old.get("kind") == "politics":
             if not political_ok(original_title, block_negative=True):
                 continue
@@ -611,6 +675,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # delay all other sources. Each original publisher is still verified.
         requests = [(source, url) for source, url in NEWS_FEEDS.items()]
         requests += FOCUSED_FEEDS
+        requests += WARNING_FEEDS
         requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
         # MBC direct feed currently delivers malformed XML; no longer block
         # the rest of collection waiting for its repeated parse failure.
@@ -639,6 +704,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         ), reverse=True)
         candidate = news[:100] + earthquake
         candidate.sort(key=lambda x: (
+            int(x["kind"] == "warning"),
             int(x["kind"] == "earthquake"),
             int(confirmed_personnel_news(x["title"])) if x["kind"] == "politics" else 0,
             x["published_at"]
@@ -677,8 +743,14 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 continue
             # Same event across broadcasters and across successive checks:
             # consider history within 24h, but do not deduplicate manual tests.
-            duplicate = item["kind"] == "politics" and any(
-                same_story(item["title"], entry["title"]) for entry in history
+            duplicate = item["kind"] in ("politics", "warning") and any(
+                same_story(item["title"], entry["title"])
+                and (item["kind"] != "warning" or (
+                    abs((parse_date(item["published_at"]) -
+                         parse_date(entry["published_at"])).total_seconds()) <= 1200
+                    and entry.get("kind", "politics") == "warning"
+                ))
+                for entry in history
             )
             if duplicate:
                 seen[item["id"]] = iso(current)
@@ -696,9 +768,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 # be picked up by the next RSS check instead of silently lost.
                 continue
             seen[item["id"]] = iso(current)
-            if item["kind"] == "politics":
-                politics_added += 1
-                history.append({"title": item["title"], "published_at": item["published_at"]})
+            if item["kind"] in ("politics", "warning"):
+                if item["kind"] == "politics":
+                    politics_added += 1
+                history.append({"title": item["title"], "published_at": item["published_at"],
+                                "kind": item["kind"]})
             if state.get("initialized"):
                 new.append({**item, "detected_at": iso(current)})
         print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
