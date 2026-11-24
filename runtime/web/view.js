@@ -202,6 +202,10 @@
   }
   function allowBroadcast(item) {
     if (!item || typeof item.title !== 'string' || !item.title.trim()) return false;
+    // USGS is disabled by request. Reject old encrypted queues and any
+    // reintroduced source, even before their 16-minute feed TTL expires.
+    if (String(item.source || '').trim().toUpperCase() === 'USGS'
+        || String(item.id || '').toLowerCase().startsWith('usgs-')) return false;
     const sourceTitle = typeof item.source_title === 'string' ? item.source_title : '';
     if (excludedHeadline(item.title) || excludedHeadline(sourceTitle)) return false;
     if (item.kind === 'warning') {
@@ -215,7 +219,12 @@
         && !/(?:북한|미사일|탄도탄|발사체|ICBM)/.test(item.title)
         && !/(?:훈련|모의|가상|예고|예정|가능성|검토|테스트)/.test(original);
     }
-    if (item.kind !== 'politics') return item.kind === 'earthquake';
+    // Earthquake simulation remains possible only through explicit manual tests;
+    // no live earthquake item can be replayed from earlier encrypted feeds.
+    if (item.kind !== 'politics') {
+      return item.kind === 'earthquake' && item.is_test === true
+        && String(item.source || '').includes('방송 테스트');
+    }
     // Never display a publisher-original sentence as the scrolling headline.
     // Legacy feed entries without an original cannot prove their rewrite.
     if (!sourceTitle || normalizedPublisherTitle(sourceTitle) ===
@@ -280,7 +289,6 @@
     queued.add(item.id);
     queue.push(item);
     queue.sort((a,b) => Number(b.kind==='warning') - Number(a.kind==='warning')
-      || Number(b.kind==='earthquake') - Number(a.kind==='earthquake')
       || Date.parse(a.detected_at || a.published_at) - Date.parse(b.detected_at || b.published_at));
   }
   function fromBase64(b64) {

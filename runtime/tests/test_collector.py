@@ -181,15 +181,11 @@ class CollectorTests(unittest.TestCase):
             self.assertNotIn('KBS', results[0]['title'])
             self.assertEqual(collector.fetch_rss('MBC', 'unused', T, SETTINGS), [])
 
-    def test_usgs_minimum_4(self):
-        sample={'features':[
-            {'id':'abc','properties':{'mag':4.0,'time':int(T.timestamp()*1000),'place':'Near Busan','url':'https://earthquake.usgs.gov/earthquakes/eventpage/abc'}},
-            {'id':'def','properties':{'mag':3.9,'time':int(T.timestamp()*1000),'place':'Near Seoul','url':'https://earthquake.usgs.gov/earthquakes/eventpage/def'}},
-        ]}
-        with patch.object(collector,'get_url',return_value=json.dumps(sample).encode()):
-            results=collector.fetch_quakes(T, {'min_magnitude':4.0,'earthquake_region':{'minlatitude':31,'maxlatitude':44,'minlongitude':123,'maxlongitude':133},'earthquake_max_age_minutes':90})
-        self.assertEqual(len(results),1)
-        self.assertIn('4.0',results[0]['title'])
+    def test_usgs_is_disabled_and_never_requests_network(self):
+        # Retired integration must never resurrect even if called directly.
+        with patch.object(collector, "get_url", side_effect=AssertionError("USGS called")):
+            result = collector.fetch_quakes(T, {})
+        self.assertEqual(result, [])
 
     def test_baseline_and_manual_test(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -465,38 +461,58 @@ class CollectorTests(unittest.TestCase):
             "2026-11-23T01:03:00Z"
         )
 
-    def test_earthquake_request_starts_concurrently_with_news_feeds(self):
-        from threading import Event
-        rss_started = Event()
-        quake_started = Event()
-
-        def quick_rss(*args):
-            rss_started.set()
-            self.assertTrue(quake_started.wait(5), "USGS was not started concurrently")
-            return []
-
-        def quick_quake(*args):
-            quake_started.set()
-            self.assertTrue(rss_started.wait(5), "RSS was not started concurrently")
-            return []
-
+    def test_live_collection_never_calls_usgs(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             cfg = root / "config.json"
-            cfg.write_text('{}', encoding='utf8')
+            cfg.write_text('{}', encoding="utf8")
             store = root / "seen.json"
-            store.write_text('{"initialized":true,"seen":{}}', encoding='utf8')
+            store.write_text('{"initialized":true,"seen":{}}', encoding="utf8")
             out = root / "feed.json"
             with patch.object(collector, "CONFIG_PATH", cfg), \
                  patch.object(collector, "STORE_PATH", store), \
                  patch.object(collector, "OUT_PATH", out), \
                  patch.object(collector, "now_utc", return_value=T), \
-                 patch.object(collector, "fetch_rss", side_effect=quick_rss), \
-                 patch.object(collector, "fetch_quakes", side_effect=quick_quake):
+                 patch.object(collector, "fetch_rss", return_value=[]), \
+                 patch.object(collector, "fetch_quakes", side_effect=AssertionError("USGS called")):
                 data = collector.run("live")
             self.assertEqual(data["items"], [])
-            self.assertEqual(data["update_interval_minutes"], 1)
+            self.assertEqual(data["last_check_errors"], [])
 
+    def test_old_usgs_and_earthquake_entries_removed_from_active_feed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = root / "config.json"
+            cfg.write_text('{}', encoding="utf8")
+            store = root / "seen.json"
+            store.write_text('{"initialized":true,"seen":{}}', encoding="utf8")
+            out = root / "feed.json"
+            old_quake = {
+                "id":"usgs-old123", "source":"USGS", "kind":"earthquake",
+                "title":"한반도 인근 규모 4.4 지진 발생",
+                "published_at":collector.iso(T),
+                "detected_at":collector.iso(T),
+                "is_test":False
+            }
+            old_korean = {
+                "id":"old-news", "source":"KBS", "kind":"politics",
+                "title":"국회가 예산안 가결",
+                "source_title":"[속보] 국회, 예산안 가결",
+                "is_breaking":True,
+                "published_at":collector.iso(T),
+                "detected_at":collector.iso(T),
+                "is_test":False
+            }
+            out.write_text(json.dumps({"items":[old_quake,old_korean]},ensure_ascii=False),encoding="utf8")
+            with patch.object(collector, "CONFIG_PATH", cfg), \
+                 patch.object(collector, "STORE_PATH", store), \
+                 patch.object(collector, "OUT_PATH", out), \
+                 patch.object(collector, "now_utc", return_value=T+collector.timedelta(minutes=1)), \
+                 patch.object(collector, "fetch_rss", return_value=[]), \
+                 patch.object(collector, "fetch_quakes", side_effect=AssertionError("USGS called")):
+                data = collector.run("live")
+            self.assertNotIn("usgs-old123", [x["id"] for x in data["items"]])
+            self.assertIn("old-news", [x["id"] for x in data["items"]])
 
     def test_rss_failure_and_recovery_are_persisted_immediately(self):
         with tempfile.TemporaryDirectory() as tmp:

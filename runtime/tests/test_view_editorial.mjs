@@ -31,7 +31,16 @@ assert.equal(allowed({
 
 assert.equal(allowed({kind:"politics",title:"국회 예산안 가결"}),false,
   "legacy unsourced articles must not replay publisher originals");
-assert.equal(allowed({kind:"earthquake",title:"한반도 인근 규모 4.3 지진 발생"}),true);
+assert.equal(allowed({kind:"earthquake",title:"한반도 인근 규모 4.3 지진 발생"}),false,
+  "old non-test earthquake captions must never replay");
+assert.equal(allowed({kind:"earthquake",title:"한반도 인근 규모 4.4 지진 발생",
+  source:"USGS",id:"usgs-old-event"}),false,"USGS completely blocked");
+assert.equal(allowed({kind:"warning",title:"울릉도 경계경보 발령",
+  source_title:"울릉도 경계경보 발령",source:"USGS"}),false,
+  "USGS cannot re-enter through a different caption kind");
+assert.equal(allowed({kind:"earthquake",title:"[테스트] 지진 모의 상황",
+  source:"방송 테스트 · 실제 뉴스 아님",is_test:true}),true,
+  "explicit manual simulations can still be tested without live USGS");
 
 assert.equal(allowed({
   kind:"politics",
