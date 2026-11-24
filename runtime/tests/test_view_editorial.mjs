@@ -96,6 +96,27 @@ assert.equal(allowed({
   source_title:"국회 북한 탄도미사일 관련 회의"
 }),false, "missile news must be blocked in political feed too");
 
+assert.equal(allowed({
+  kind:"politics",
+  title:"국회가 예산안 최종 가결",
+  source_title:"[단독] 국회, 예산안 최종 가결"
+}),false, "original exclusive tag blocks reworded caption");
+assert.equal(allowed({
+  kind:"warning",
+  title:"울릉도 경계경보 발령",
+  source_title:"【단독】 울릉도 경계경보 발령"
+}),false, "exclusive tag also blocks otherwise real warning");
+assert.equal(allowed({
+  kind:"politics",
+  title:"정부가 정책 발표",
+  source_title:"(단독) 정부, 정책 발표"
+}),false, "round-bracket exclusive reports blocked");
+assert.equal(allowed({
+  kind:"politics",
+  title:"국회가 주요 법안 가결",
+  source_title:"[속보] 국회, 주요 법안 가결"
+}),true, "nonexclusive routine national law decision stays allowed");
+
 assert.equal(allowed({kind:"weather",title:"전국 날씨"}),false,
   "unsupported feed types must not reach the overlay");
 assert.equal(allowed(null),false);
