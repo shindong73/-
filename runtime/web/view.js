@@ -191,8 +191,8 @@
       // developments must never bypass this gate as a generic alert.
       const original = typeof item.source_title === 'string' && item.source_title.trim()
         ? item.source_title : item.title;
-      return /^[가-힣0-9·\\s-]{2,35} 경계경보 (?:발령|해제|정정)$/.test(item.title)
-        && /경계\\s*경보/.test(original)
+      return /^[가-힣0-9·\s-]{2,35} 경계경보 (?:발령|해제|정정)$/.test(item.title)
+        && /경계\s*경보/.test(original)
         && /(?:발령|해제|정정)/.test(original)
         && !/(?:북한|미사일|탄도탄|발사체|ICBM)/.test(item.title)
         && !/(?:훈련|모의|가상|예고|예정|가능성|검토|테스트)/.test(original);
@@ -205,7 +205,9 @@
     const original = typeof item.source_title === 'string' && item.source_title.trim()
       ? item.source_title : item.title;
     return domesticHeadline.test(original)
-      && !foreignHeadline.test(original) && !partyOpinion.test(original)
+      && !foreignHeadline.test(original)
+      && !/(?:미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM)/i.test(original)
+      && !partyOpinion.test(original)
       && !partyReaction.test(original);
   }
   function show(item) {
