@@ -456,8 +456,12 @@ def rewrite_headline(original: str) -> str | None:
         (r"\b국내 증시 안정 대책\b", "국내 증시 안정 방안"),
         (r"\b사유에 미포함\b", "사유에서 제외"),
     )
+    meaningful_rewrite = False
     for pattern, replacement in paraphrases:
-        title = re.sub(pattern, replacement, title)
+        updated = re.sub(pattern, replacement, title)
+        if updated != title and pattern != r"\b오늘\s+":
+            meaningful_rewrite = True
+        title = updated
 
     # Factual subject-first broadcast wording when an explicit actor and a
     # complete factual action are present; not for direct quotations.
@@ -505,6 +509,8 @@ def rewrite_headline(original: str) -> str | None:
                 if re.search(r"(?:개각\s*(?:발표|단행)|개각)", title)
                 else None)
 
+    if meaningful_rewrite and not re.search(r'[“”"「」『』‘’]', title):
+        return title[:100]
     # Fail closed: a word-for-word publisher title is less valuable than
     # withholding a headline that cannot be safely summarized from the facts.
     # Rewording still does NOT by itself guarantee copyright clearance.
