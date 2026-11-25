@@ -10,7 +10,6 @@ import argparse
 import hashlib
 from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_filter import screen_news_groq as screen_news
 import html
 import json
 import os
@@ -20,7 +19,6 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
-from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
@@ -366,35 +364,45 @@ def important_politics_news(title: str) -> bool:
                 or MAJOR_DECISION_RE.search(title))
 
 
-# Strict, no-cost emergency desk used only for unreviewed items when the
-# optional AI cannot decide (quota, cooldown, temporary outage, missing key).
-# A breaking badge or party quotation is never enough by itself.
+# Do not repackage older events as fresh breaking news.
 RECAPPED_EVENT_RE = re.compile(r"지난\s*(?:주|달|해|\d+\s*(?:일|주|개월))|어제|그제|과거|회고|재조명|당시")
 
-def conservative_fallback_news(item: dict, current: datetime) -> bool:
-    if not isinstance(item, dict) or item.get("kind") != "politics":
-        return False
-    if item.get("is_test") or item.get("caption_ready") is False:
-        return False
-    original = str(item.get("source_title") or "")
-    caption = str(item.get("title") or "")
-    if not original or not caption or original == caption:
-        return False
-    if str(item.get("source") or "") not in ("KBS", "MBC", "JTBC", "연합뉴스"):
-        return False
-    when = parse_date(item.get("published_at"))
-    if not when or not current - timedelta(minutes=45) <= when <= current + timedelta(minutes=5):
-        return False
-    if RECAPPED_EVENT_RE.search(original):
-        return False
-    # Hard bans and the existing broad conservative actor/foreign checks.
-    if not political_ok(original, block_negative=True):
-        return False
-    if party_commentary(original) or excluded_ticker_topic(original):
-        return False
-    # Only unmistakable completed events; never mere predictions, demands,
-    # commentary, routine visits, or a naked '[속보]' prefix.
-    return bool(confirmed_personnel_news(original) or MAJOR_DECISION_RE.search(original))
+CONFIRMED_NATIONAL_ACTION_RE = re.compile(
+    r"(?:국회|정부|대통령실|청와대|대통령|헌법재판소|헌재|대법원|국무회의|"
+    r"특검|검찰|기획재정부|금융위원회|금융당국)"
+    r".{0,65}?(?:가결|부결|의결|통과|선고|판결|파면|기각|구속|체포|기소|"
+    r"최종\s*확정|공식\s*발표|발효|공포|시행|제정|개정)"
+)
+UNCONFIRMED_EVENT_RE = re.compile(
+    r"(?:인사|사퇴|교체|임명|경질|발탁)설|가능성|관측|전망|검토|촉구|요구|"
+    r"예정|예고|논의\s*중|추측|하마평|여부|의혹|주장|비판|반박|논평|공방"
+)
+ROUTINE_EVENT_RE = re.compile(
+    r"방문|참석|축사|인사말|간담회|기자회견|민생\s*행보|현장\s*점검|"
+    r"토론회|공청회|기념식|회의\s*참석"
+)
+
+def headline_priority(title: str, *, block_negative: bool = True) -> int:
+    """Rule-only desk score. 0 means not a confirmed high-impact national event.
+
+    Priority is based on action, actor and concreteness rather than keyword
+    presence or a publisher's '[속보]' label.
+    """
+    if not political_ok(title, block_negative=block_negative):
+        return 0
+    if RECAPPED_EVENT_RE.search(title) or party_commentary(title):
+        return 0
+    if UNCONFIRMED_EVENT_RE.search(title):
+        return 0
+    if confirmed_personnel_news(title):
+        return 95
+    if MAJOR_DECISION_RE.search(title):
+        return 90
+    if ROUTINE_EVENT_RE.search(title):
+        return 0
+    if CONFIRMED_NATIONAL_ACTION_RE.search(title):
+        return 80
+    return 0
 
 
 def political_ok(title: str, *, block_negative: bool) -> bool:
@@ -624,17 +632,15 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         # Excluded topics do not belong in any automatic ticker category.
         if excluded_ticker_topic(title):
             continue
-        # In AI mode, do NOT pre-judge importance from keywords, political
-        # names or a [속보] label. Let the model assess every verified,
-        # recent publisher headline. Retain only explicit user bans and
-        # the separate, strict civil-defense warning rules.
-        ai_editorial = settings.get("editorial_mode") == "ai"
+        # Stage 1: hard bans. Stage 2: verified concrete event classification.
+        # A breaking badge is not enough: only high-impact completed actions
+        # enter the politics queue. Civil-defense warnings are separate.
+        priority = (100 if warning_title else headline_priority(
+            title, block_negative=bool(settings["exclude_unfavorable_dem_news"])))
         if not warning_title and (
                 "경계경보" in title.replace(" ", "")
                 or re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM", title, re.I)
-                or (not ai_editorial and (
-                    not political_ok(title, block_negative=bool(settings["exclude_unfavorable_dem_news"]))
-                    or not important_politics_news(title)))):
+                or not priority):
             continue
         counters["politics"] += 1
         published = parse_date(item.findtext("pubDate") or item.findtext("published") or
@@ -672,16 +678,15 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
                 continue
         counters["source"] += 1
         rewritten = warning_title or rewrite_headline(title)
-        # In AI mode, the editorial model gets to evaluate the story even when
-        # our conservative headline rewriter cannot safely paraphrase it.
-        # The final broadcast still requires a nonverbatim caption.
-        if not rewritten and not ai_editorial:
+        # Stage 3: never broadcast unchanged/unsafe publisher headlines.
+        if not rewritten:
             continue
         items.append({
             "id": stable_id(source, link, title),
             "kind": "warning" if warning_title else "politics",
             "title": rewritten or title,
-            "caption_ready": bool(rewritten),
+            "caption_ready": True,
+            "priority": priority,
             "source_title": title,
             "source": source,
             "published_at": iso(published),
@@ -730,13 +735,15 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "warning_max_age_minutes": 15,
         "active_window_minutes": 16,
         "max_news_per_run": 3,
-        "editorial_mode": "rules",
     }
     settings = {**defaults, **settings}
-    ai_editorial = settings.get("editorial_mode") == "ai"
     current = now_utc()
     state = read_json(STORE_PATH, {"initialized": False, "seen": {}})
     seen = state.get("seen", {}) if isinstance(state.get("seen", {}), dict) else {}
+    # Retire all provider-specific throttle/error state; previous 429s must
+    # not interfere with deterministic screening on subsequent cron runs.
+    for obsolete in ("ai_provider", "ai_next_attempt_at", "ai_last_http_status"):
+        state.pop(obsolete, None)
     prev = read_json(OUT_PATH, {"items": []})
     # Cross-broadcaster story history lives only inside the encrypted payload.
     old_history = prev.get("history", [])
@@ -773,17 +780,20 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     minutes=settings.get("warning_max_age_minutes", 15)):
                 continue
         if old.get("kind") == "politics":
-            if ai_editorial:
-                # Do not replay unreviewed legacy data; retain either explicitly
-                # AI-approved or trusted conservative fallback selections.
-                if (old.get("ai_approved") is not True
-                        and old.get("rules_fallback_approved") is not True):
-                    continue
-            else:
-                if not political_ok(original_title, block_negative=True):
-                    continue
-                if not (old.get("is_breaking") or important_politics_news(original_title)):
-                    continue
+            if not headline_priority(
+                original_title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
+                continue
+            # Do not retain unsafe legacy headlines selected by an LLM.
+            if (not old.get("source_title") or
+                    not old.get("caption_ready", True) or
+                    clean_title(BREAKING_RE.sub("", original_title, count=1))
+                    == clean_title(old.get("title", ""))):
+                continue
+            old = {
+                **{k: v for k, v in old.items()
+                   if k not in ("ai_approved", "rules_fallback_approved")},
+                "rules_approved": True
+            }
         if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)):
             recent.append(old)
     new = []
@@ -816,8 +826,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
         news.sort(key=lambda x: (
-            int(x["kind"] == "warning"),
-            int(confirmed_personnel_news(x["title"])) if (not ai_editorial and x["kind"] == "politics") else 0,
+            x.get("priority", (
+                100 if x["kind"] == "warning" else
+                headline_priority(x.get("source_title") or x["title"],
+                                  block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+            )),
             x["published_at"]
         ), reverse=True)
         candidate = [
@@ -827,74 +840,16 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             and item.get("kind") != "earthquake"
         ]
         candidate.sort(key=lambda x: (
-            int(x["kind"] == "warning"),
-            int(confirmed_personnel_news(x["title"])) if (not ai_editorial and x["kind"] == "politics") else 0,
+            x.get("priority", (
+                100 if x["kind"] == "warning" else
+                headline_priority(x.get("source_title") or x["title"],
+                                  block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+            )),
             x["published_at"]
         ), reverse=True)
-        # Optional AI desk editor. No API key means deterministic rules only.
-        # If the API fails, pause new *political* headlines for this refresh
-        # rather than accidentally broadcasting unreviewed commentary.
-        ai_key = os.environ.get("GROQ_API_KEY", "").strip()
-        ai_results = {}
-        # Free-tier quota cannot support an AI request every minute.
-        # Run editorial review at most every five minutes and retain the next
-        # attempt in committed state so the limit survives Actions runners.
-        # Reset obsolete Gemini rate-limit state on the first Groq run.
-        # Otherwise the old Gemini HTTP 429 could suppress the new provider.
-        if state.get("ai_provider") != "groq":
-            state.pop("ai_next_attempt_at", None)
-            state.pop("ai_last_http_status", None)
-        state["ai_provider"] = "groq"
-        ai_next = parse_date(state.get("ai_next_attempt_at"))
-        screening_input = []
-        submitted = set()
-        for x in candidate:
-            if (x["kind"] != "politics" or x["id"] in seen or
-                    x["id"] in submitted):
-                continue
-            submitted.add(x["id"])
-            screening_input.append(x)
-            if len(screening_input) >= 8:
-                break
-        if not ai_key:
-            if ai_editorial:
-                failures.append("Groq API key missing; conservative fallback only")
-                print("Groq AI not configured; conservative breaking-news fallback active")
-            else:
-                print("Groq AI inactive (GROQ_API_KEY missing); rule-based fallback")
-        elif screening_input and ai_next and current < ai_next:
-            # Do not spam the provider during daily quota exhaustion or
-            # between ordinary editorial checks; no unapproved politics airs.
-            minutes = max(1, int((ai_next - current).total_seconds() / 60 + 0.999))
-            print(f"AI screening cooldown: {minutes} minute(s) remaining")
-            if state.get("ai_last_http_status") == 429:
-                failures.append("Groq API quota limited (HTTP 429); conservative fallback active")
-        elif screening_input:
-            try:
-                ai_results = screen_news(
-                    screening_input, api_key=ai_key,
-                    model=os.environ.get("GROQ_NEWS_MODEL", "openai/gpt-oss-20b"),
-                    checked_at=iso(current)
-                )
-                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=15))
-                state.pop("ai_last_http_status", None)
-                print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
-            except HTTPError as exc:
-                # Response bodies and request headers may carry sensitive data.
-                # Log only the numeric HTTP status so quota errors are visible.
-                status = int(exc.code)
-                state["ai_last_http_status"] = status
-                backoff = 60 if status == 429 else (30 if status in (401, 403) else 10)
-                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=backoff))
-                failures.append(f"Groq AI screening unavailable (HTTP {status}); conservative fallback available")
-                print(f"AI screening unavailable (HTTP {status}); next attempt in {backoff} minutes")
-            except Exception as exc:
-                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=10))
-                failures.append(f"Groq AI screening unavailable ({type(exc).__name__}); conservative fallback available")
-                detail = str(exc)[:130] if isinstance(exc, ValueError) else ""
-                print(f"AI screening unavailable ({type(exc).__name__}: {detail}); political items deferred")
+        # Everything after this point is deterministic; no external AI calls.
+        print(f"Rules-only desk: validated candidates={len(candidate)}")
         politics_added = 0
-        fallback_added = 0
         duplicate_count = 0
         for item in candidate:
             if item["id"] in seen:
@@ -914,27 +869,15 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 seen[item["id"]] = iso(current)
                 duplicate_count += 1
                 continue
-            review_source = None
             if item["kind"] == "politics":
-                if item["id"] in ai_results:
-                    if not ai_results[item["id"]]:
-                        # Explicit AI rejection must never be overridden by rules.
-                        seen[item["id"]] = iso(current)
-                        continue
-                    review_source = "ai"
-                elif ai_editorial:
-                    # Free-tier resilience: never let a 429 or a waiting period
-                    # black out fully verified, major domestic decisions.
-                    # Uncertain articles remain unsent pending AI review.
-                    if conservative_fallback_news(item, current):
-                        review_source = "rules_fallback"
-                    else:
-                        continue
-                elif ai_key:
-                    # Legacy rule mode with AI enabled stays fail-closed.
+                original_title = item.get("source_title") or item["title"]
+                # Stage 4: final decision, applied also to synthetic/legacy
+                # candidates before deduplication or state consumption.
+                if not headline_priority(
+                        original_title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
+                    seen[item["id"]] = iso(current)
                     continue
                 if not item.get("caption_ready", True):
-                    # Do not show unchanged publisher-original sentences.
                     seen[item["id"]] = iso(current)
                     continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
@@ -942,14 +885,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 # be picked up by the next RSS check instead of silently lost.
                 continue
             seen[item["id"]] = iso(current)
-            if item["kind"] == "politics" and ai_editorial:
-                item = {
-                    **item,
-                    "ai_approved": review_source == "ai",
-                    "rules_fallback_approved": review_source == "rules_fallback"
-                }
-                if review_source == "rules_fallback":
-                    fallback_added += 1
+            if item["kind"] == "politics":
+                item = {**item, "rules_approved": True}
             if item["kind"] in ("politics", "warning"):
                 if item["kind"] == "politics":
                     politics_added += 1
@@ -957,7 +894,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                                 "kind": item["kind"]})
             if state.get("initialized"):
                 new.append({**item, "detected_at": iso(current)})
-        print(f"Selection: newly_accepted={len(new)} rules_fallback={fallback_added} duplicates_omitted={duplicate_count}")
+        print(f"Selection: newly_accepted={len(new)} rules_only=True duplicates_omitted={duplicate_count}")
         state["initialized"] = True
     else:
         raise ValueError(f"Unknown mode: {mode}")
