@@ -3,6 +3,5 @@
   "headline_max_age_minutes": 90,
   "active_window_minutes": 16,
   "max_news_per_run": 3,
-  "warning_max_age_minutes": 15,
-  "editorial_mode": "rules"
+  "warning_max_age_minutes": 15
 }
