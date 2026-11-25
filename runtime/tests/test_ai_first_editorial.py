@@ -108,8 +108,8 @@ class AiFirstEditorialTests(unittest.TestCase):
     def test_ai_http_429_is_visible_and_rate_limited(self):
         article = {
             "id": "quota-test", "kind": "politics",
-            "title": "국회가 주요 법안 가결",
-            "source_title": "국회, 주요 법안 가결",
+            "title": "정부가 중대 정책 조정 발표",
+            "source_title": "정부, 중대 정책 조정 발표",
             "source": "KBS", "published_at": collector.iso(NOW),
             "caption_ready": True, "is_test": False,
         }
@@ -141,6 +141,76 @@ class AiFirstEditorialTests(unittest.TestCase):
                                  "Cooldown must avoid hitting quota again")
                 self.assertIn("HTTP 429",second["last_check_errors"][0])
                 self.assertNotIn("quota-test",persisted["seen"])
+
+
+    def test_free_fallback_delivers_major_event_without_api_key(self):
+        article = {
+            "id": "emergency-law-vote",
+            "kind": "politics",
+            "title": "국회가 주요 법안 가결",
+            "source_title": "[속보] 국회, 주요 법안 가결",
+            "source": "KBS",
+            "published_at": collector.iso(NOW),
+            "caption_ready": True,
+            "is_test": False
+        }
+        result, state, model_args = self._run([article], api_key="")
+        self.assertEqual(len(result["items"]), 1)
+        self.assertIs(result["items"][0]["rules_fallback_approved"], True)
+        self.assertIs(result["items"][0]["ai_approved"], False)
+        self.assertIn("emergency-law-vote",state["seen"])
+        self.assertIsNone(model_args)
+
+    def test_fallback_blocks_commentary_old_news_and_unverified(self):
+        base = {
+            "id": "item", "kind": "politics",
+            "source": "KBS", "caption_ready": True,
+            "published_at": collector.iso(NOW), "is_test": False,
+        }
+        decision = collector.conservative_fallback_news
+        self.assertFalse(decision({**base,
+            "title": "정부 논평", "source_title": '국힘 "국회는 책임져야"'
+        }, NOW), "party opinion must not pass emergency desk")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "[단독] 국회, 예산안 가결"
+        }, NOW), "exclusive user ban must be upheld")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "선관위 국회 예산안 가결"
+        }, NOW), "election topic ban must be upheld")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "국회, 예산안 가결",
+            "source": "USGS"
+        }, NOW), "USGS must never be a fallback news source")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "국회, 예산안 가결",
+            "published_at": collector.iso(NOW - collector.timedelta(hours=2))
+        }, NOW), "older articles cannot appear as urgent fallback news")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "지난주 국회, 예산안 가결"
+        }, NOW), "recaps must not appear as new breaking news")
+        self.assertFalse(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "국회, 예산안 가결",
+            "caption_ready": False
+        }, NOW), "verbatim or unsafe publisher titles never air")
+        self.assertTrue(decision({**base,
+            "title": "국회가 예산안 가결", "source_title": "[속보] 국회, 예산안 가결"
+        }, NOW), "confirmed recent major decision should pass")
+
+    def test_ai_explicit_rejection_cannot_be_overridden_by_fallback(self):
+        article = {
+            "id": "model-rejected",
+            "kind": "politics",
+            "title": "국회가 주요 법안 가결",
+            "source_title": "국회, 주요 법안 가결",
+            "source": "KBS",
+            "published_at": collector.iso(NOW),
+            "caption_ready": True,
+            "is_test": False
+        }
+        result, state, model_args = self._run([article], decision=False)
+        self.assertEqual(result["items"], [])
+        self.assertIn("model-rejected",state["seen"])
+        self.assertIsNotNone(model_args)
 
     def test_successful_ai_review_is_batched_and_throttled(self):
         with tempfile.TemporaryDirectory() as folder:
