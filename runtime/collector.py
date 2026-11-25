@@ -836,7 +836,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # rather than accidentally broadcasting unreviewed commentary.
         ai_key = os.environ.get("GROQ_API_KEY", "").strip()
         ai_results = {}
-        # Free-tier quota cannot support one Gemini request every minute.
+        # Free-tier quota cannot support an AI request every minute.
         # Run editorial review at most every five minutes and retain the next
         # attempt in committed state so the limit survives Actions runners.
         # Reset obsolete Gemini rate-limit state on the first Groq run.
