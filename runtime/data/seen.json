@@ -538,6 +538,5 @@
     "JTBC-b171bfa8716521ce3106d657": "2026-11-25T10:40:07Z",
     "JTBC-15ad8345a5d47927dfc34beb": "2026-11-25T10:40:07Z"
   },
-  "ai_last_http_status": 429,
-  "ai_next_attempt_at": "2026-11-25T13:01:13Z"
+  "ai_provider": "groq"
 }
