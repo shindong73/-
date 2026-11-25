@@ -43,11 +43,29 @@
       new TextEncoder().encode(password)).then(toHex);
     return authHashPromise;
   }
+  // In OBS browser contexts storage can fail (quota/private source). Preserve
+  // unsynced display-start records in memory so the encrypted KV API still
+  // receives them and a storage error cannot silently erase the new event.
+  let volatileDisplayedLog = [];
   function displayedLog() {
+    let persisted = [];
     try {
       const records = JSON.parse(localStorage.getItem(DISPLAY_LOG_KEY) || '[]');
-      return Array.isArray(records) ? records : [];
-    } catch (_) { return []; }
+      if (Array.isArray(records)) persisted = records;
+    } catch (_) {}
+    const unique = new Map();
+    for (const row of [...persisted, ...volatileDisplayedLog]) {
+      if (row && typeof row.id === 'string' && typeof row.started_at === 'string') {
+        unique.set(row.id + '|' + row.started_at, row);
+      }
+    }
+    return [...unique.values()].slice(-500);
+  }
+  function persistDisplayedLog(records) {
+    volatileDisplayedLog = records.slice(-500);
+    try {
+      localStorage.setItem(DISPLAY_LOG_KEY, JSON.stringify(volatileDisplayedLog));
+    } catch (_) { /* Central encrypted transmission can still succeed. */ }
   }
   function recordDisplay(item) {
     // This means the overlay started displaying, not that OBS was live/on-air.
@@ -57,7 +75,7 @@
       started_at:new Date().toISOString(),planned_duration_seconds:DISPLAY_MS/1000,
       synced_to_server:false
     });
-    try {localStorage.setItem(DISPLAY_LOG_KEY,JSON.stringify(log.slice(-500)));} catch (_) {}
+    persistDisplayedLog(log);
     if (LOG_API) void syncDisplayedLog();
   }
   async function syncDisplayedLog() {
@@ -87,7 +105,7 @@
         const match=current.find(x=>x.id===row.id&&x.started_at===row.started_at);
         if(match) {
           match.synced_to_server=true;
-          try {localStorage.setItem(DISPLAY_LOG_KEY,JSON.stringify(current));} catch (_) {}
+          persistDisplayedLog(current);
         }
       }
     } catch (_) {
