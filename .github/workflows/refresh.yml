@@ -60,6 +60,7 @@ jobs:
           node --check runtime/scripts/secure_payload.mjs
           node --check runtime/web/view.js
           node runtime/tests/test_view_editorial.mjs
+          node runtime/tests/test_view_schedule.mjs
           node runtime/tests/test_history_csv.mjs
           node --check runtime/web/history.js
           node runtime/tests/test_secure_payload.mjs
