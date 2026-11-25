@@ -154,3 +154,96 @@ def screen_news(items: list[dict], *, api_key: str, model: str = DEFAULT_MODEL, 
     with urlopen(req, timeout=22) as response:
         result = json.load(response)
     return parse_decisions(result, expected_ids)
+
+# Groq is the active free-tier editorial provider. The legacy Gemini function
+# above is retained only for backwards-compatible unit tests, never production.
+GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_DEFAULT_MODEL = "openai/gpt-oss-20b"
+
+
+def validate_decision_rows(rows: object, expected_ids: list[str]) -> dict[str, bool]:
+    """Accept only a complete, unambiguous set of article decisions."""
+    if not isinstance(rows, list) or len(rows) != len(expected_ids):
+        raise ValueError("Incomplete AI editorial response")
+    decisions = {}
+    for row in rows:
+        if (not isinstance(row, dict)
+                or not isinstance(row.get("id"), str)
+                or not isinstance(row.get("approve"), bool)
+                or not isinstance(row.get("reason"), str)
+                or row["id"] in decisions):
+            raise ValueError("Malformed AI editorial decision")
+        decisions[row["id"]] = row["approve"]
+    if set(decisions) != set(expected_ids):
+        raise ValueError("AI invented or omitted article IDs")
+    return decisions
+
+
+def screen_news_groq(items: list[dict], *, api_key: str,
+                     model: str = GROQ_DEFAULT_MODEL,
+                     checked_at: str | None = None) -> dict[str, bool]:
+    """Review up to eight verified articles via Groq's strict JSON schema.
+
+    No SDK dependency, no billing API, and no fallback to Gemini.
+    """
+    if not items:
+        return {}
+    if not api_key.strip():
+        raise ValueError("GROQ_API_KEY is missing")
+    if len(items) > 8:
+        raise ValueError("Groq editorial batch is limited to eight articles")
+    # Model-name characters include slash but must never become a URL segment:
+    # the endpoint is fixed; the model is sent only as JSON body data.
+    if not re.fullmatch(r"[A-Za-z0-9._/-]{3,100}", model):
+        raise ValueError("Invalid Groq model")
+    ids = [x["id"] for x in items]
+    if len(set(ids)) != len(ids):
+        raise ValueError("Duplicate article IDs")
+    payload = {
+        "checked_at_utc": checked_at,
+        "articles": [{
+            "id": x["id"],
+            "title": x.get("source_title") or x["title"],
+            "source": x["source"],
+            "published_at": x.get("published_at")
+        } for x in items]
+    }
+    schema = {**SCHEMA, "additionalProperties": False}
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": INSTRUCTIONS},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)}
+        ],
+        "temperature": 0,
+        "reasoning_effort": "low",
+        "max_completion_tokens": 2048,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "breaking_news_review",
+                "strict": True,
+                "schema": schema
+            }
+        }
+    }
+    req = Request(
+        GROQ_ENDPOINT,
+        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
+        headers={"Authorization": "Bearer " + api_key,
+                 "Content-Type": "application/json"},
+        method="POST"
+    )
+    with urlopen(req, timeout=22) as response:
+        result = json.load(response)
+    choices = result.get("choices") if isinstance(result, dict) else None
+    if not isinstance(choices, list) or len(choices) != 1:
+        raise ValueError("Missing Groq completion")
+    choice = choices[0]
+    if choice.get("finish_reason") != "stop":
+        raise ValueError("Incomplete Groq completion")
+    content = choice.get("message", {}).get("content")
+    if not isinstance(content, str):
+        raise ValueError("Invalid Groq message content")
+    rows = json.loads(content).get("items")
+    return validate_decision_rows(rows, ids)
