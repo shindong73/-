@@ -20,6 +20,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
@@ -802,38 +803,57 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # rather than accidentally broadcasting unreviewed commentary.
         ai_key = os.environ.get("GEMINI_API_KEY", "").strip()
         ai_results = {}
-        if ai_key:
-            screening_input = []
-            submitted = set()
-            for x in candidate:
-                if (x["kind"] != "politics" or x["id"] in seen or
-                        x["id"] in submitted):
-                    continue
-                submitted.add(x["id"])
-                screening_input.append(x)
-                # Smaller batches stay within structured-JSON output bounds.
-                # New articles that overflow remain eligible next minute.
-                if len(screening_input) >= 12:
-                    break
+        # Free-tier quota cannot support one Gemini request every minute.
+        # Run editorial review at most every five minutes and retain the next
+        # attempt in committed state so the limit survives Actions runners.
+        ai_next = parse_date(state.get("ai_next_attempt_at"))
+        screening_input = []
+        submitted = set()
+        for x in candidate:
+            if (x["kind"] != "politics" or x["id"] in seen or
+                    x["id"] in submitted):
+                continue
+            submitted.add(x["id"])
+            screening_input.append(x)
+            if len(screening_input) >= 12:
+                break
+        if not ai_key:
+            if ai_editorial:
+                failures.append("Gemini API key missing; AI editorial mode blocks new political headlines")
+                print("Gemini AI unavailable; AI-only political ticker paused")
+            else:
+                print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
+        elif screening_input and ai_next and current < ai_next:
+            # Do not spam the provider during daily quota exhaustion or
+            # between ordinary editorial checks; no unapproved politics airs.
+            minutes = max(1, int((ai_next - current).total_seconds() / 60 + 0.999))
+            print(f"AI screening cooldown: {minutes} minute(s) remaining")
+            if state.get("ai_last_http_status") == 429:
+                failures.append("Gemini API quota limited (HTTP 429); retry scheduled")
+        elif screening_input:
             try:
                 ai_results = screen_news(
                     screening_input, api_key=ai_key,
                     model=os.environ.get("GEMINI_NEWS_MODEL", "gemini-2.5-flash-lite"),
                     checked_at=iso(current)
                 )
+                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=5))
+                state.pop("ai_last_http_status", None)
                 print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
+            except HTTPError as exc:
+                # Response bodies and request headers may carry sensitive data.
+                # Log only the numeric HTTP status so quota errors are visible.
+                status = int(exc.code)
+                state["ai_last_http_status"] = status
+                backoff = 60 if status == 429 else (30 if status in (401, 403) else 10)
+                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=backoff))
+                failures.append(f"AI screening unavailable (HTTP {status}); political news postponed")
+                print(f"AI screening unavailable (HTTP {status}); next attempt in {backoff} minutes")
             except Exception as exc:
-                failures.append("AI screening unavailable; political news postponed")
-                # Error details are limited to safe exception class/message;
-                # never print raw model output, article titles or API secrets.
+                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=10))
+                failures.append(f"AI screening unavailable ({type(exc).__name__}); political news postponed")
                 detail = str(exc)[:130] if isinstance(exc, ValueError) else ""
                 print(f"AI screening unavailable ({type(exc).__name__}: {detail}); political items deferred")
-        else:
-            if ai_editorial:
-                failures.append("Gemini API key missing; AI editorial mode blocks new political headlines")
-                print("Gemini AI unavailable; AI-only political ticker paused")
-            else:
-                print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
         politics_added = 0
         duplicate_count = 0
         for item in candidate:
