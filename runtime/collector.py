@@ -10,7 +10,7 @@ import argparse
 import hashlib
 from difflib import SequenceMatcher
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ai_filter import screen_news
+from ai_filter import screen_news_groq as screen_news
 import html
 import json
 import os
@@ -834,11 +834,17 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # Optional AI desk editor. No API key means deterministic rules only.
         # If the API fails, pause new *political* headlines for this refresh
         # rather than accidentally broadcasting unreviewed commentary.
-        ai_key = os.environ.get("GEMINI_API_KEY", "").strip()
+        ai_key = os.environ.get("GROQ_API_KEY", "").strip()
         ai_results = {}
-        # Free-tier quota cannot support one Gemini request every minute.
+        # Free-tier quota cannot support an AI request every minute.
         # Run editorial review at most every five minutes and retain the next
         # attempt in committed state so the limit survives Actions runners.
+        # Reset obsolete Gemini rate-limit state on the first Groq run.
+        # Otherwise the old Gemini HTTP 429 could suppress the new provider.
+        if state.get("ai_provider") != "groq":
+            state.pop("ai_next_attempt_at", None)
+            state.pop("ai_last_http_status", None)
+        state["ai_provider"] = "groq"
         ai_next = parse_date(state.get("ai_next_attempt_at"))
         screening_input = []
         submitted = set()
@@ -848,29 +854,29 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 continue
             submitted.add(x["id"])
             screening_input.append(x)
-            if len(screening_input) >= 12:
+            if len(screening_input) >= 8:
                 break
         if not ai_key:
             if ai_editorial:
-                failures.append("Gemini API key missing; conservative fallback only")
-                print("Gemini AI unavailable; conservative breaking-news fallback active")
+                failures.append("Groq API key missing; conservative fallback only")
+                print("Groq AI not configured; conservative breaking-news fallback active")
             else:
-                print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
+                print("Groq AI inactive (GROQ_API_KEY missing); rule-based fallback")
         elif screening_input and ai_next and current < ai_next:
             # Do not spam the provider during daily quota exhaustion or
             # between ordinary editorial checks; no unapproved politics airs.
             minutes = max(1, int((ai_next - current).total_seconds() / 60 + 0.999))
             print(f"AI screening cooldown: {minutes} minute(s) remaining")
             if state.get("ai_last_http_status") == 429:
-                failures.append("Gemini API quota limited (HTTP 429); conservative fallback active")
+                failures.append("Groq API quota limited (HTTP 429); conservative fallback active")
         elif screening_input:
             try:
                 ai_results = screen_news(
                     screening_input, api_key=ai_key,
-                    model=os.environ.get("GEMINI_NEWS_MODEL", "gemini-2.5-flash-lite"),
+                    model=os.environ.get("GROQ_NEWS_MODEL", "openai/gpt-oss-20b"),
                     checked_at=iso(current)
                 )
-                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=5))
+                state["ai_next_attempt_at"] = iso(current + timedelta(minutes=15))
                 state.pop("ai_last_http_status", None)
                 print(f"AI screening: reviewed={len(ai_results)} approved={sum(ai_results.values())}")
             except HTTPError as exc:
@@ -880,11 +886,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 state["ai_last_http_status"] = status
                 backoff = 60 if status == 429 else (30 if status in (401, 403) else 10)
                 state["ai_next_attempt_at"] = iso(current + timedelta(minutes=backoff))
-                failures.append(f"AI screening unavailable (HTTP {status}); conservative fallback available")
+                failures.append(f"Groq AI screening unavailable (HTTP {status}); conservative fallback available")
                 print(f"AI screening unavailable (HTTP {status}); next attempt in {backoff} minutes")
             except Exception as exc:
                 state["ai_next_attempt_at"] = iso(current + timedelta(minutes=10))
-                failures.append(f"AI screening unavailable ({type(exc).__name__}); conservative fallback available")
+                failures.append(f"Groq AI screening unavailable ({type(exc).__name__}); conservative fallback available")
                 detail = str(exc)[:130] if isinstance(exc, ValueError) else ""
                 print(f"AI screening unavailable ({type(exc).__name__}: {detail}); political items deferred")
         politics_added = 0

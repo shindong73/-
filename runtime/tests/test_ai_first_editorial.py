@@ -58,7 +58,7 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector,"OUT_PATH",payload), \
                  patch.object(collector,"now_utc",return_value=NOW), \
                  patch.object(collector,"fetch_rss",return_value=politics), \
-                 patch.dict(os.environ,{"GEMINI_API_KEY":api_key}), \
+                 patch.dict(os.environ,{"GROQ_API_KEY":api_key}), \
                  patch.object(collector,"screen_news",return_value={x["id"]:decision for x in politics}) as model:
                 result=collector.run("live")
                 saved=json.loads(state.read_text(encoding="utf8"))
@@ -100,10 +100,44 @@ class AiFirstEditorialTests(unittest.TestCase):
         }
         result,seen,model_args=self._run([article],api_key="")
         self.assertEqual(result["items"],[])
-        self.assertIn("Gemini API key missing",result["last_check_errors"][0])
+        self.assertIn("Groq API key missing",result["last_check_errors"][0])
         self.assertNotIn("no-key",seen["seen"])
         self.assertIsNone(model_args)
 
+
+
+    def test_previous_gemini_cooldown_does_not_disable_new_groq(self):
+        article = {
+            "id": "new-provider", "kind": "politics",
+            "title": "국회가 예산안 최종 가결",
+            "source_title": "국회, 예산안 최종 가결",
+            "source": "KBS", "published_at": collector.iso(NOW),
+            "caption_ready": True, "is_test": False
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "config.json"
+            cfg.write_text(json.dumps(AI_SETTINGS), encoding="utf8")
+            state_file = root / "seen.json"
+            state_file.write_text(json.dumps({
+                "initialized": True, "seen": {},
+                "ai_next_attempt_at": collector.iso(NOW + collector.timedelta(hours=6)),
+                "ai_last_http_status": 429
+            }),encoding="utf8")
+            payload = root / "payload.json"
+            with patch.object(collector, "CONFIG_PATH", cfg), \
+                 patch.object(collector, "STORE_PATH", state_file), \
+                 patch.object(collector, "OUT_PATH", payload), \
+                 patch.object(collector, "now_utc", return_value=NOW), \
+                 patch.object(collector, "fetch_rss", return_value=[article]), \
+                 patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), \
+                 patch.object(collector, "screen_news", return_value={"new-provider": True}) as model:
+                result = collector.run("live")
+            self.assertEqual(model.call_count, 1)
+            self.assertTrue(result["items"][0]["ai_approved"])
+            new_state = json.loads(state_file.read_text(encoding="utf8"))
+            self.assertEqual(new_state["ai_provider"], "groq")
+            self.assertNotIn("ai_last_http_status", new_state)
 
     def test_ai_http_429_is_visible_and_rate_limited(self):
         article = {
@@ -125,7 +159,7 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector, "OUT_PATH", payload), \
                  patch.object(collector, "now_utc", return_value=NOW), \
                  patch.object(collector, "fetch_rss", return_value=[article]), \
-                 patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), \
+                 patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), \
                  patch.object(collector, "screen_news",
                      side_effect=HTTPError("https://example.com",429,"Too Many Requests",{},None)) as model:
                 first = collector.run("live")
@@ -233,10 +267,10 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector,"OUT_PATH",payload), \
                  patch.object(collector,"now_utc",return_value=NOW), \
                  patch.object(collector,"fetch_rss",return_value=articles), \
-                 patch.dict(os.environ,{"GEMINI_API_KEY":"test-key"}), \
+                 patch.dict(os.environ,{"GROQ_API_KEY":"test-key"}), \
                  patch.object(collector,"screen_news",return_value={}) as model:
                 first=collector.run("live")
-                self.assertEqual(len(model.call_args.args[0]),12)
+                self.assertEqual(len(model.call_args.args[0]),8)
                 self.assertEqual(first["items"],[])
                 with patch.object(collector,"now_utc",return_value=NOW+collector.timedelta(minutes=1)):
                     collector.run("live")
