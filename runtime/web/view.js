@@ -397,7 +397,7 @@
       try {
         const r = await fetch('./view.html?version-check=' + Date.now(), {cache:'no-store'});
         if (!r.ok) return;
-        const match = (await r.text()).match(/view\\.js\\?v=([A-Za-z0-9_-]+)/);
+        const match = (await r.text()).match(/view\.js\?v=([A-Za-z0-9_-]+)/);
         if (match && match[1] !== SCRIPT_VERSION) location.reload();
       } catch (_) { /* Network issues must never interrupt a live caption. */ }
     }
