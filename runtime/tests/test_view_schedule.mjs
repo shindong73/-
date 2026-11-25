@@ -97,4 +97,34 @@ logMemory.persistDisplayedLog(saved);
 assert.equal(logMemory.displayedLog().filter(x=>!x.synced_to_server).length,1,
   'synced display records must stay acknowledged in the memory fallback');
 
-console.log('OBS 12-minute schedule and no-storage caption-log queue regression checks OK');
+const versionHtml = readFileSync(join(dirname(fileURLToPath(import.meta.url)),
+  '..','web','view.html'),'utf8');
+const expectedVersion=view.match(/const SCRIPT_VERSION = '([A-Za-z0-9_-]+)'/);
+assert.ok(expectedVersion && versionHtml.includes('view.js?v='+expectedVersion[1]),
+  'the HTML cache-busting script version and running client version must match');
+const updateStart = view.indexOf('    async function checkClientVersion() {');
+const updateEnd = view.indexOf('    setInterval(checkClientVersion',updateStart);
+assert.ok(updateStart > 0 && updateEnd > updateStart);
+let reloads=0;
+let remoteVersion=expectedVersion[1];
+const updateClient=runInNewContext(`(() => {
+  let active=false;
+  const SCRIPT_VERSION = '${expectedVersion[1]}';
+  ${view.slice(updateStart,updateEnd)}
+  return {checkClientVersion,setActive(v){active=v}};
+})()`,{
+  Date:DateStub,
+  fetch:async()=>({ok:true,text:async()=>'<script src="./view.js?v='+remoteVersion+'"></script>'}),
+  location:{reload(){reloads++;}}
+});
+await updateClient.checkClientVersion();
+assert.equal(reloads,0,'do not reload when script has not changed');
+remoteVersion='newer-client-build';
+updateClient.setActive(true);
+await updateClient.checkClientVersion();
+assert.equal(reloads,0,'do not interrupt a 30-second active caption for a code update');
+updateClient.setActive(false);
+await updateClient.checkClientVersion();
+assert.equal(reloads,1,'apply future code updates when OBS is idle');
+
+console.log('OBS 12-minute schedule, crash-safe caption logs and client version checks OK');

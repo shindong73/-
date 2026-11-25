@@ -1,5 +1,6 @@
 (() => {
   'use strict';
+  const SCRIPT_VERSION = 'deep-audit-20261126a';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
@@ -388,5 +389,18 @@
       }
     }
     poll(); setInterval(poll, POLL_MS);
+    // A long-running OBS browser source does not automatically reload
+    // JavaScript after GitHub Pages deploys a new client. Check the tiny HTML
+    // shell occasionally and reload ONLY while no caption is actively shown.
+    async function checkClientVersion() {
+      if (active) return;
+      try {
+        const r = await fetch('./view.html?version-check=' + Date.now(), {cache:'no-store'});
+        if (!r.ok) return;
+        const match = (await r.text()).match(/view\.js\?v=([A-Za-z0-9_-]+)/);
+        if (match && match[1] !== SCRIPT_VERSION) location.reload();
+      } catch (_) { /* Network issues must never interrupt a live caption. */ }
+    }
+    setInterval(checkClientVersion, 5 * 60 * 1000);
   }
 })();
