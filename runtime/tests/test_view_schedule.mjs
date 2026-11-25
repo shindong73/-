@@ -74,4 +74,27 @@ advance(12*60000-(clock-Date.parse('2026-11-26T00:00:00Z'))+100);
 ticker.next();
 assert.deepEqual(records,['first','second'],'next item should show at 12-minute mark');
 assert.equal(ticker.seen.second>0,true);
-console.log('OBS 12-minute cooldown, pending queue, localStorage persistence and unchanged-feed wakeup checks OK');
+const logFrom = view.indexOf('  let volatileDisplayedLog = [];');
+const logTo = view.indexOf('  async function syncDisplayedLog()',logFrom);
+assert.ok(logFrom > 0 && logTo > logFrom);
+const logMemory = runInNewContext(`(() => {
+  const DISPLAY_LOG_KEY = 'view-displayed-headlines-v1';
+  const DISPLAY_MS = 30000, LOG_API = '';
+  const localStorage = {
+    getItem(){return null;},
+    setItem(){throw new Error('QuotaExceededError');}
+  };
+  ${view.slice(logFrom,logTo)}
+  return {recordDisplay,displayedLog,persistDisplayedLog};
+})()`);
+logMemory.recordDisplay({id:'log-1',kind:'politics',source:'KBS',title:'국회가 법안 가결'});
+logMemory.recordDisplay({id:'log-2',kind:'politics',source:'MBC',title:'정부가 중대 결정 발표'});
+assert.equal(logMemory.displayedLog().length,2,
+  'central-sync queue must retain new display records if localStorage fails');
+const saved=logMemory.displayedLog();
+saved[0].synced_to_server=true;
+logMemory.persistDisplayedLog(saved);
+assert.equal(logMemory.displayedLog().filter(x=>!x.synced_to_server).length,1,
+  'synced display records must stay acknowledged in the memory fallback');
+
+console.log('OBS 12-minute schedule and no-storage caption-log queue regression checks OK');
