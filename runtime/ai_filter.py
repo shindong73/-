@@ -109,7 +109,8 @@ def screen_news_groq(items: list[dict], *, api_key: str,
         raise ValueError("Groq editorial batch is limited to eight articles")
     # Model-name characters include slash but must never become a URL segment:
     # the endpoint is fixed; the model is sent only as JSON body data.
-    if not re.fullmatch(r"[A-Za-z0-9._/-]{3,100}", model):
+    if (not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", model)
+            or len(model) > 100):
         raise ValueError("Invalid Groq model")
     ids = [x["id"] for x in items]
     if len(set(ids)) != len(ids):
