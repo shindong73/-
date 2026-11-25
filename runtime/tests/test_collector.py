@@ -235,7 +235,7 @@ class CollectorTests(unittest.TestCase):
         ))
 
     def test_direct_mbc_politics_feed_and_timezone(self):
-        xml = '''<rss><channel><item><title>[속보] 국회 예산안 심사 일정 발표</title>
+        xml = '''<rss><channel><item><title>[속보] 국회, 예산안 가결</title>
         <pubDate>Sun, 22 Nov 2026 09:59:00 +0900</pubDate>
         <link>https://imnews.imbc.com/news/2026/politics/article/12345.html</link></item></channel></rss>'''
         with patch.object(collector,'get_url',return_value=xml.encode()):
@@ -251,7 +251,8 @@ class CollectorTests(unittest.TestCase):
             seen=root/'seen.json'
             seen.write_text('{"initialized":true,"seen":{}}',encoding='utf8')
             out=root/'feed.json'
-            event={'id':'lagged','kind':'politics','title':'국회 예산안 통과','source':'KBS',
+            event={'id':'lagged','kind':'politics','title':'국회가 예산안 통과',
+                   'source_title':'[속보] 국회, 예산안 통과','source':'KBS',
                    'published_at':collector.iso(T-collector.timedelta(minutes=40)),
                    'link':'https://news.google.com/example','is_test':False}
             with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',seen),patch.object(collector,'OUT_PATH',out),patch.object(collector,'now_utc',return_value=T),patch.object(collector,'fetch_rss',return_value=[event]),patch.object(collector,'fetch_quakes',return_value=[]):
@@ -272,7 +273,9 @@ class CollectorTests(unittest.TestCase):
             private = root / "private.json"
             news = {
                 "id": "domestic-story-1", "kind": "politics",
-                "title": "국회 주요 법안 처리", "source": "KBS",
+                "title": "국회가 주요 법안 가결",
+                "source_title":"[속보] 국회, 주요 법안 가결",
+                "source": "KBS",
                 "published_at": collector.iso(T), "link": "https://news.google.com/1",
                 "is_test": False,
             }
@@ -421,10 +424,13 @@ class CollectorTests(unittest.TestCase):
             out=root/'private.json'
             base={'kind':'politics','source':'KBS','published_at':collector.iso(T),
                   'is_test':False,'is_breaking':True,'link':'https://news.google.com/1'}
-            a={**base,'id':'a','title':'국회 예산안 통과'}
-            b={**base,'id':'b','title':'[속보] 헌재 주요 사건 선고',
+            a={**base,'id':'a','title':'국회가 예산안 통과',
+               'source_title':'[속보] 국회, 예산안 통과'}
+            b={**base,'id':'b','title':'헌재가 주요 사건 선고',
+               'source_title':'[속보] 헌재, 주요 사건 선고',
                'link':'https://news.google.com/2'}
-            c={**base,'id':'c','title':'최교진 교육부 장관 사의 표명',
+            c={**base,'id':'c','title':'최교진 교육부 장관 사퇴 의사 밝혀',
+               'source_title':'최교진 교육부 장관 사의 표명',
                'link':'https://news.google.com/3'}
             with patch.object(collector,'CONFIG_PATH',cfg),patch.object(collector,'STORE_PATH',store), \
                  patch.object(collector,'OUT_PATH',out),patch.object(collector,'fetch_quakes',return_value=[]), \
