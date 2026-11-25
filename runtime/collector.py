@@ -786,7 +786,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             # Do not retain unsafe legacy headlines selected by an LLM.
             if (not old.get("source_title") or
                     not old.get("caption_ready", True) or
-                    not rewrite_headline(original_title)):
+                    clean_title(BREAKING_RE.sub("", original_title, count=1))
+                    == clean_title(old.get("title", ""))):
                 continue
             old = {
                 **{k: v for k, v in old.items()
