@@ -369,7 +369,7 @@ def important_politics_news(title: str) -> bool:
 # Strict, no-cost emergency desk used only for unreviewed items when the
 # optional AI cannot decide (quota, cooldown, temporary outage, missing key).
 # A breaking badge or party quotation is never enough by itself.
-RECAPPED_EVENT_RE = re.compile(r"지난\\s*(?:주|달|해|\\d+\\s*(?:일|주|개월))|어제|그제|과거|회고|재조명|당시")
+RECAPPED_EVENT_RE = re.compile(r"지난\s*(?:주|달|해|\d+\s*(?:일|주|개월))|어제|그제|과거|회고|재조명|당시")
 
 def conservative_fallback_news(item: dict, current: datetime) -> bool:
     if not isinstance(item, dict) or item.get("kind") != "politics":
