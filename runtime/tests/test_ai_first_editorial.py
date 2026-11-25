@@ -5,6 +5,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+from urllib.error import HTTPError
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import collector
@@ -102,6 +103,74 @@ class AiFirstEditorialTests(unittest.TestCase):
         self.assertIn("Gemini API key missing",result["last_check_errors"][0])
         self.assertNotIn("no-key",seen["seen"])
         self.assertIsNone(model_args)
+
+
+    def test_ai_http_429_is_visible_and_rate_limited(self):
+        article = {
+            "id": "quota-test", "kind": "politics",
+            "title": "국회가 주요 법안 가결",
+            "source_title": "국회, 주요 법안 가결",
+            "source": "KBS", "published_at": collector.iso(NOW),
+            "caption_ready": True, "is_test": False,
+        }
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "config.json"
+            cfg.write_text(json.dumps(AI_SETTINGS), encoding="utf8")
+            state_file = root / "seen.json"
+            state_file.write_text('{"initialized":true,"seen":{}}', encoding="utf8")
+            payload = root / "payload.json"
+            with patch.object(collector, "CONFIG_PATH", cfg), \
+                 patch.object(collector, "STORE_PATH", state_file), \
+                 patch.object(collector, "OUT_PATH", payload), \
+                 patch.object(collector, "now_utc", return_value=NOW), \
+                 patch.object(collector, "fetch_rss", return_value=[article]), \
+                 patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), \
+                 patch.object(collector, "screen_news",
+                     side_effect=HTTPError("https://example.com",429,"Too Many Requests",{},None)) as model:
+                first = collector.run("live")
+                self.assertEqual(model.call_count, 1)
+                self.assertEqual(first["items"], [])
+                self.assertIn("HTTP 429", first["last_check_errors"][0])
+                persisted = json.loads(state_file.read_text(encoding="utf8"))
+                self.assertEqual(persisted["ai_last_http_status"],429)
+                self.assertTrue(persisted["ai_next_attempt_at"])
+                with patch.object(collector,"now_utc",return_value=NOW+collector.timedelta(minutes=1)):
+                    second = collector.run("live")
+                self.assertEqual(model.call_count,1,
+                                 "Cooldown must avoid hitting quota again")
+                self.assertIn("HTTP 429",second["last_check_errors"][0])
+                self.assertNotIn("quota-test",persisted["seen"])
+
+    def test_successful_ai_review_is_batched_and_throttled(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            cfg = root / "config.json"
+            cfg.write_text(json.dumps(AI_SETTINGS),encoding="utf8")
+            state_file=root / "seen.json"
+            state_file.write_text('{"initialized":true,"seen":{}}',encoding="utf8")
+            payload=root / "payload.json"
+            articles=[
+                {"id": f"event-{i}", "kind":"politics",
+                 "title":"정부가 중대 정책 조정 발표",
+                 "source_title":"정부, 중대 정책 조정 발표",
+                 "source":"KBS",
+                 "published_at":collector.iso(NOW),"caption_ready":True,"is_test":False}
+                for i in range(15)
+            ]
+            with patch.object(collector,"CONFIG_PATH",cfg), \
+                 patch.object(collector,"STORE_PATH",state_file), \
+                 patch.object(collector,"OUT_PATH",payload), \
+                 patch.object(collector,"now_utc",return_value=NOW), \
+                 patch.object(collector,"fetch_rss",return_value=articles), \
+                 patch.dict(os.environ,{"GEMINI_API_KEY":"test-key"}), \
+                 patch.object(collector,"screen_news",return_value={}) as model:
+                first=collector.run("live")
+                self.assertEqual(len(model.call_args.args[0]),12)
+                self.assertEqual(first["items"],[])
+                with patch.object(collector,"now_utc",return_value=NOW+collector.timedelta(minutes=1)):
+                    collector.run("live")
+                self.assertEqual(model.call_count,1)
 
 if __name__ == "__main__":
     unittest.main()
