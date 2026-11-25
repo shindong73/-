@@ -58,7 +58,7 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector,"OUT_PATH",payload), \
                  patch.object(collector,"now_utc",return_value=NOW), \
                  patch.object(collector,"fetch_rss",return_value=politics), \
-                 patch.dict(os.environ,{"GEMINI_API_KEY":api_key}), \
+                 patch.dict(os.environ,{"GROQ_API_KEY":api_key}), \
                  patch.object(collector,"screen_news",return_value={x["id"]:decision for x in politics}) as model:
                 result=collector.run("live")
                 saved=json.loads(state.read_text(encoding="utf8"))
@@ -100,7 +100,7 @@ class AiFirstEditorialTests(unittest.TestCase):
         }
         result,seen,model_args=self._run([article],api_key="")
         self.assertEqual(result["items"],[])
-        self.assertIn("Gemini API key missing",result["last_check_errors"][0])
+        self.assertIn("Groq API key missing",result["last_check_errors"][0])
         self.assertNotIn("no-key",seen["seen"])
         self.assertIsNone(model_args)
 
@@ -125,7 +125,7 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector, "OUT_PATH", payload), \
                  patch.object(collector, "now_utc", return_value=NOW), \
                  patch.object(collector, "fetch_rss", return_value=[article]), \
-                 patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}), \
+                 patch.dict(os.environ, {"GROQ_API_KEY": "test-key"}), \
                  patch.object(collector, "screen_news",
                      side_effect=HTTPError("https://example.com",429,"Too Many Requests",{},None)) as model:
                 first = collector.run("live")
@@ -233,10 +233,10 @@ class AiFirstEditorialTests(unittest.TestCase):
                  patch.object(collector,"OUT_PATH",payload), \
                  patch.object(collector,"now_utc",return_value=NOW), \
                  patch.object(collector,"fetch_rss",return_value=articles), \
-                 patch.dict(os.environ,{"GEMINI_API_KEY":"test-key"}), \
+                 patch.dict(os.environ,{"GROQ_API_KEY":"test-key"}), \
                  patch.object(collector,"screen_news",return_value={}) as model:
                 first=collector.run("live")
-                self.assertEqual(len(model.call_args.args[0]),12)
+                self.assertEqual(len(model.call_args.args[0]),8)
                 self.assertEqual(first["items"],[])
                 with patch.object(collector,"now_utc",return_value=NOW+collector.timedelta(minutes=1)):
                     collector.run("live")
