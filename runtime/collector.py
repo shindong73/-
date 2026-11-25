@@ -366,6 +366,37 @@ def important_politics_news(title: str) -> bool:
                 or MAJOR_DECISION_RE.search(title))
 
 
+# Strict, no-cost emergency desk used only for unreviewed items when the
+# optional AI cannot decide (quota, cooldown, temporary outage, missing key).
+# A breaking badge or party quotation is never enough by itself.
+RECAPPED_EVENT_RE = re.compile(r"지난\s*(?:주|달|해|\d+\s*(?:일|주|개월))|어제|그제|과거|회고|재조명|당시")
+
+def conservative_fallback_news(item: dict, current: datetime) -> bool:
+    if not isinstance(item, dict) or item.get("kind") != "politics":
+        return False
+    if item.get("is_test") or item.get("caption_ready") is False:
+        return False
+    original = str(item.get("source_title") or "")
+    caption = str(item.get("title") or "")
+    if not original or not caption or original == caption:
+        return False
+    if str(item.get("source") or "") not in ("KBS", "MBC", "JTBC", "연합뉴스"):
+        return False
+    when = parse_date(item.get("published_at"))
+    if not when or not current - timedelta(minutes=45) <= when <= current + timedelta(minutes=5):
+        return False
+    if RECAPPED_EVENT_RE.search(original):
+        return False
+    # Hard bans and the existing broad conservative actor/foreign checks.
+    if not political_ok(original, block_negative=True):
+        return False
+    if party_commentary(original) or excluded_ticker_topic(original):
+        return False
+    # Only unmistakable completed events; never mere predictions, demands,
+    # commentary, routine visits, or a naked '[속보]' prefix.
+    return bool(confirmed_personnel_news(original) or MAJOR_DECISION_RE.search(original))
+
+
 def political_ok(title: str, *, block_negative: bool) -> bool:
     if excluded_ticker_topic(title):
         return False
@@ -743,8 +774,10 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 continue
         if old.get("kind") == "politics":
             if ai_editorial:
-                # Never replay a legacy unreviewed item when switching to AI.
-                if old.get("ai_approved") is not True:
+                # Do not replay unreviewed legacy data; retain either explicitly
+                # AI-approved or trusted conservative fallback selections.
+                if (old.get("ai_approved") is not True
+                        and old.get("rules_fallback_approved") is not True):
                     continue
             else:
                 if not political_ok(original_title, block_negative=True):
@@ -819,8 +852,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 break
         if not ai_key:
             if ai_editorial:
-                failures.append("Gemini API key missing; AI editorial mode blocks new political headlines")
-                print("Gemini AI unavailable; AI-only political ticker paused")
+                failures.append("Gemini API key missing; conservative fallback only")
+                print("Gemini AI unavailable; conservative breaking-news fallback active")
             else:
                 print("Gemini AI inactive (GEMINI_API_KEY missing); rule-based fallback")
         elif screening_input and ai_next and current < ai_next:
@@ -829,7 +862,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             minutes = max(1, int((ai_next - current).total_seconds() / 60 + 0.999))
             print(f"AI screening cooldown: {minutes} minute(s) remaining")
             if state.get("ai_last_http_status") == 429:
-                failures.append("Gemini API quota limited (HTTP 429); retry scheduled")
+                failures.append("Gemini API quota limited (HTTP 429); conservative fallback active")
         elif screening_input:
             try:
                 ai_results = screen_news(
@@ -847,14 +880,15 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 state["ai_last_http_status"] = status
                 backoff = 60 if status == 429 else (30 if status in (401, 403) else 10)
                 state["ai_next_attempt_at"] = iso(current + timedelta(minutes=backoff))
-                failures.append(f"AI screening unavailable (HTTP {status}); political news postponed")
+                failures.append(f"AI screening unavailable (HTTP {status}); conservative fallback available")
                 print(f"AI screening unavailable (HTTP {status}); next attempt in {backoff} minutes")
             except Exception as exc:
                 state["ai_next_attempt_at"] = iso(current + timedelta(minutes=10))
-                failures.append(f"AI screening unavailable ({type(exc).__name__}); political news postponed")
+                failures.append(f"AI screening unavailable ({type(exc).__name__}); conservative fallback available")
                 detail = str(exc)[:130] if isinstance(exc, ValueError) else ""
                 print(f"AI screening unavailable ({type(exc).__name__}: {detail}); political items deferred")
         politics_added = 0
+        fallback_added = 0
         duplicate_count = 0
         for item in candidate:
             if item["id"] in seen:
@@ -874,18 +908,27 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 seen[item["id"]] = iso(current)
                 duplicate_count += 1
                 continue
+            review_source = None
             if item["kind"] == "politics":
-                if ai_editorial or ai_key:
-                    if item["id"] not in ai_results:
-                        # No key, API failure, or batch overflow: fail closed.
-                        # Unreviewed political items must never go on air.
-                        continue
+                if item["id"] in ai_results:
                     if not ai_results[item["id"]]:
+                        # Explicit AI rejection must never be overridden by rules.
                         seen[item["id"]] = iso(current)
                         continue
+                    review_source = "ai"
+                elif ai_editorial:
+                    # Free-tier resilience: never let a 429 or a waiting period
+                    # black out fully verified, major domestic decisions.
+                    # Uncertain articles remain unsent pending AI review.
+                    if conservative_fallback_news(item, current):
+                        review_source = "rules_fallback"
+                    else:
+                        continue
+                elif ai_key:
+                    # Legacy rule mode with AI enabled stays fail-closed.
+                    continue
                 if not item.get("caption_ready", True):
-                    # The AI approved the event but we could not safely rewrite
-                    # the publisher's headline without inventing information.
+                    # Do not show unchanged publisher-original sentences.
                     seen[item["id"]] = iso(current)
                     continue
             if item["kind"] == "politics" and politics_added >= settings["max_news_per_run"]:
@@ -894,7 +937,13 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 continue
             seen[item["id"]] = iso(current)
             if item["kind"] == "politics" and ai_editorial:
-                item = {**item, "ai_approved": True}
+                item = {
+                    **item,
+                    "ai_approved": review_source == "ai",
+                    "rules_fallback_approved": review_source == "rules_fallback"
+                }
+                if review_source == "rules_fallback":
+                    fallback_added += 1
             if item["kind"] in ("politics", "warning"):
                 if item["kind"] == "politics":
                     politics_added += 1
@@ -902,7 +951,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                                 "kind": item["kind"]})
             if state.get("initialized"):
                 new.append({**item, "detected_at": iso(current)})
-        print(f"Selection: newly_accepted={len(new)} duplicates_omitted={duplicate_count}")
+        print(f"Selection: newly_accepted={len(new)} rules_fallback={fallback_added} duplicates_omitted={duplicate_count}")
         state["initialized"] = True
     else:
         raise ValueError(f"Unknown mode: {mode}")
