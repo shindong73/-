@@ -229,12 +229,8 @@
     // Legacy feed entries without an original cannot prove their rewrite.
     if (!sourceTitle || normalizedPublisherTitle(sourceTitle) ===
         normalizedPublisherTitle(item.title)) return false;
-    // In AI mode, the verified collector/editor has already made the editorial
-    // decision. Do not second-guess it with brittle keyword-based heuristics.
-    // Keep explicit user topic bans above and military safety exclusion below.
-    if (item.ai_approved === true) {
-      return !/(?:미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM)/i.test(sourceTitle);
-    }
+    // No AI bypasses. Every item, including historical AI selections, must
+    // pass the same local editorial safety gate before reaching OBS.
     // Apply the browser's last-resort editorial safety gate to the ORIGINAL
     // publisher headline. The broadcast rewrite can omit the Korean actor,
     // even when the server correctly approved a major domestic event.
