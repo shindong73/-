@@ -1,6 +1,9 @@
 (() => {
   'use strict';
   const DISPLAY_MS = 30000;
+  // Minimum interval between the START of two actual news captions.
+  const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
+  const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';
   const POLL_MS = 3000;
   const MAX_AGE_MS = 16 * 60 * 1000;
   const frame = document.querySelector('#frame');
@@ -97,6 +100,16 @@
   const queued = new Set();
   let active = false;
   let seen = {};
+  let lastDisplayAt = 0;
+  try {
+    const stored = Number(localStorage.getItem(LAST_DISPLAY_AT_KEY));
+    if (Number.isFinite(stored) && stored > 0 && stored <= Date.now() + 300000) {
+      lastDisplayAt = stored;
+    }
+  } catch (_) { /* An unavailable storage backend must not break the ticker. */ }
+  function canStartCaption(item, now = Date.now()) {
+    return item?.is_test === true || now - lastDisplayAt >= MIN_DISPLAY_GAP_MS;
+  }
   let lastPayload = '';
   let cryptoCache = {salt: null, key: null};
   try {
@@ -252,6 +265,10 @@
     }
     active = true;
     remember(item.id);
+    if (!item.is_test) {
+      lastDisplayAt = Date.now();
+      try { localStorage.setItem(LAST_DISPLAY_AT_KEY, String(lastDisplayAt)); } catch (_) {}
+    }
     headline.textContent = item.title;
     fitHeadline();
     bar.classList.remove('closing', 'visible');
@@ -271,12 +288,20 @@
   function next() {
     if (active) return;
     while (queue.length) {
-      const item = queue.shift();
-      queued.delete(item.id);
+      const item = queue[0];
       const discovered = Date.parse(item.detected_at || item.published_at);
       // A large backlog must never play expired news after its 16-minute TTL.
       if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS ||
-          discovered > Date.now() + 300000 || seen[item.id] || !allowBroadcast(item)) continue;
+          discovered > Date.now() + 300000 || seen[item.id] || !allowBroadcast(item)) {
+        queue.shift();
+        queued.delete(item.id);
+        continue;
+      }
+      // Leave the item queued while another headline is in its 12-minute
+      // cooldown. An unchanged encrypted feed still calls next() every poll.
+      if (!canStartCaption(item)) return;
+      queue.shift();
+      queued.delete(item.id);
       show(item);
       return;
     }
@@ -291,6 +316,7 @@
     queued.add(item.id);
     queue.push(item);
     queue.sort((a,b) => Number(b.kind==='warning') - Number(a.kind==='warning')
+      || (Number(b.priority) || 0) - (Number(a.priority) || 0)
       || Date.parse(a.detected_at || a.published_at) - Date.parse(b.detected_at || b.published_at));
   }
   function fromBase64(b64) {
@@ -318,7 +344,9 @@
         const r = await fetch('./data/payload.enc.json?v=' + Date.now(), {cache:'no-store'});
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const raw = await r.text();
-        if (raw === lastPayload) return;
+        // A queued caption can become eligible after 12 minutes without any
+        // change to the feed, so keep advancing the queue during steady-state.
+        if (raw === lastPayload) { next(); return; }
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
         label.textContent = data.label;
