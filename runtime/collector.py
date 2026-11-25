@@ -364,39 +364,9 @@ def important_politics_news(title: str) -> bool:
                 or MAJOR_DECISION_RE.search(title))
 
 
-# Strict, no-cost emergency desk used only for unreviewed items when the
-# optional AI cannot decide (quota, cooldown, temporary outage, missing key).
-# A breaking badge or party quotation is never enough by itself.
+# Do not repackage older events as fresh breaking news.
 RECAPPED_EVENT_RE = re.compile(r"지난\s*(?:주|달|해|\d+\s*(?:일|주|개월))|어제|그제|과거|회고|재조명|당시")
 
-def conservative_fallback_news(item: dict, current: datetime) -> bool:
-    if not isinstance(item, dict) or item.get("kind") != "politics":
-        return False
-    if item.get("is_test") or item.get("caption_ready") is False:
-        return False
-    original = str(item.get("source_title") or "")
-    caption = str(item.get("title") or "")
-    if not original or not caption or original == caption:
-        return False
-    if str(item.get("source") or "") not in ("KBS", "MBC", "JTBC", "연합뉴스"):
-        return False
-    when = parse_date(item.get("published_at"))
-    if not when or not current - timedelta(minutes=45) <= when <= current + timedelta(minutes=5):
-        return False
-    if RECAPPED_EVENT_RE.search(original):
-        return False
-    # Hard bans and the existing broad conservative actor/foreign checks.
-    if not political_ok(original, block_negative=True):
-        return False
-    if party_commentary(original) or excluded_ticker_topic(original):
-        return False
-    # Only unmistakable completed events; never mere predictions, demands,
-    # commentary, routine visits, or a naked '[속보]' prefix.
-    return bool(confirmed_personnel_news(original) or MAJOR_DECISION_RE.search(original))
-
-
-# Classification policy: hard bans and publisher/timestamp verification run
-# BEFORE these patterns. Neither a '[속보]' tag nor a party quote is sufficient.
 CONFIRMED_NATIONAL_ACTION_RE = re.compile(
     r"(?:국회|정부|대통령실|청와대|대통령|헌법재판소|헌재|대법원|국무회의|"
     r"특검|검찰|기획재정부|금융위원회|금융당국)"
@@ -765,7 +735,6 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "warning_max_age_minutes": 15,
         "active_window_minutes": 16,
         "max_news_per_run": 3,
-        "editorial_mode": "rules",
     }
     settings = {**defaults, **settings}
     current = now_utc()
@@ -819,8 +788,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     not old.get("caption_ready", True) or
                     not rewrite_headline(original_title)):
                 continue
-            old = {**old, "rules_approved": True,
-                   "ai_approved": False, "rules_fallback_approved": False}
+            old = {
+                **{k: v for k, v in old.items()
+                   if k not in ("ai_approved", "rules_fallback_approved")},
+                "rules_approved": True
+            }
         if (when and current - timedelta(minutes=settings["active_window_minutes"]) <= when <= current + timedelta(minutes=5)):
             recent.append(old)
     new = []
@@ -905,8 +877,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 continue
             seen[item["id"]] = iso(current)
             if item["kind"] == "politics":
-                item = {**item, "rules_approved": True,
-                        "ai_approved": False, "rules_fallback_approved": False}
+                item = {**item, "rules_approved": True}
             if item["kind"] in ("politics", "warning"):
                 if item["kind"] == "politics":
                     politics_added += 1
