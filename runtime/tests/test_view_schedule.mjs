@@ -34,17 +34,17 @@ const context = {
   recordDisplay(item){records.push(item.id);},
   allowBroadcast(item) {return item.id !== 'rejected';}
 };
-const harness = \`(() => {
+const harness = `(() => {
   const DISPLAY_MS = 30000, MAX_AGE_MS = 16 * 60000;
   const MIN_DISPLAY_GAP_MS = 12 * 60000;
   const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';
   let lastDisplayAt = 0, active = false;
   const seen = {}, queue = [], queued = new Set();
   function remember(id){seen[id] = Date.now();}
-  \${view.slice(readyFrom,readyTo)}
-  \${view.slice(from,to)}
+  ${view.slice(readyFrom,readyTo)}
+  ${view.slice(from,to)}
   return {offer,next,seen,queue,queued,canStartCaption,state:()=>({lastDisplayAt,active})};
-})()\`;
+})()`;
 const ticker = runInNewContext(harness, context);
 const article = (id,kind='politics',priority=90) => ({
   id,kind,priority,title:'국회가 예산안 가결',source_title:'국회, 예산안 가결',
