@@ -3,16 +3,13 @@
 The collector verifies publisher and timestamp before submitting a candidate.
 The model evaluates importance and event-vs-commentary. It cannot independently
 fact-check facts or the event's true time from a publisher headline alone.
-When editorial_mode='ai', failure/missing Gemini key pauses political captions.
+When the Groq key is missing or rate-limited, only strict free fallback events are eligible.
 """
 from __future__ import annotations
 
 import json
 import re
 from urllib.request import Request, urlopen
-
-ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
-DEFAULT_MODEL = "gemini-2.5-flash-lite"
 
 INSTRUCTIONS = """You are a careful Korean television breaking-news desk editor.
 Decide whether an RSS headline contains a recent, nationally important and
@@ -74,89 +71,7 @@ SCHEMA = {
 }
 
 
-def parse_decisions(result: dict, expected_ids: list[str]) -> dict[str, bool]:
-    """Validate an entire Gemini batch; uncertain/incomplete output is rejected."""
-    if not isinstance(result, dict) or result.get("promptFeedback", {}).get("blockReason"):
-        raise ValueError("Blocked or invalid Gemini response")
-    candidates = result.get("candidates", [])
-    if not isinstance(candidates, list) or len(candidates) != 1:
-        raise ValueError("Expected exactly one Gemini candidate")
-    candidate = candidates[0]
-    if candidate.get("finishReason") != "STOP":
-        reason = str(candidate.get("finishReason", "unknown"))[:40]
-        raise ValueError("Gemini did not finish response: " + reason)
-    parts = candidate.get("content", {}).get("parts", [])
-    if not isinstance(parts, list):
-        raise ValueError("Invalid Gemini parts")
-    content = "".join(
-        p["text"] for p in parts
-        if isinstance(p, dict) and isinstance(p.get("text"), str) and not p.get("thought")
-    )
-    rows = json.loads(content).get("items")
-    if not isinstance(rows, list) or len(rows) != len(expected_ids):
-        count = len(rows) if isinstance(rows, list) else "invalid"
-        raise ValueError(f"Gemini decision count mismatch: {count}/{len(expected_ids)}")
-    decisions = {}
-    for row in rows:
-        if (not isinstance(row, dict)
-                or not isinstance(row.get("id"), str)
-                or not isinstance(row.get("approve"), bool)
-                or not isinstance(row.get("reason"), str)
-                or row["id"] in decisions):
-            raise ValueError("Malformed or duplicate Gemini decision")
-        decisions[row["id"]] = row["approve"]
-    if set(decisions) != set(expected_ids):
-        raise ValueError("Gemini invented or omitted article IDs")
-    return decisions
-
-
-def screen_news(items: list[dict], *, api_key: str, model: str = DEFAULT_MODEL, checked_at: str | None = None) -> dict[str, bool]:
-    """Send at most 24 verified publisher titles through Gemini in one request."""
-    if not items:
-        return {}
-    if not api_key.strip():
-        raise ValueError("GEMINI_API_KEY is missing")
-    if len(items) > 24:
-        raise ValueError("Gemini screening batch too large")
-    if not re.fullmatch(r"[A-Za-z0-9._-]{3,100}", model):
-        raise ValueError("Invalid Gemini model identifier")
-    expected_ids = [x["id"] for x in items]
-    if len(set(expected_ids)) != len(expected_ids):
-        raise ValueError("Duplicated Gemini article IDs")
-    body = {
-        "systemInstruction": {"parts": [{"text": INSTRUCTIONS}]},
-        "contents": [{"role": "user", "parts": [{"text": json.dumps({
-            "checked_at_utc": checked_at,
-            "articles": [
-                {
-                    "id": x["id"],
-                    "title": x.get("source_title") or x["title"],
-                    "source": x["source"],
-                    "published_at": x.get("published_at")
-                }
-                for x in items
-            ]
-        }, ensure_ascii=False)}]}],
-        "generationConfig": {
-            "candidateCount": 1,
-            "temperature": 0,
-            "maxOutputTokens": 4096,
-            "responseMimeType": "application/json",
-            "responseJsonSchema": SCHEMA
-        }
-    }
-    req = Request(
-        f"{ENDPOINT}/{model}:generateContent",
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
-        method="POST"
-    )
-    with urlopen(req, timeout=22) as response:
-        result = json.load(response)
-    return parse_decisions(result, expected_ids)
-
-# Groq is the active free-tier editorial provider. The legacy Gemini function
-# above is retained only for backwards-compatible unit tests, never production.
+# Groq is the only AI provider in the production news pipeline.
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_DEFAULT_MODEL = "openai/gpt-oss-20b"
 
@@ -184,7 +99,7 @@ def screen_news_groq(items: list[dict], *, api_key: str,
                      checked_at: str | None = None) -> dict[str, bool]:
     """Review up to eight verified articles via Groq's strict JSON schema.
 
-    No SDK dependency, no billing API, and no fallback to Gemini.
+    No SDK dependency and no billing API.
     """
     if not items:
         return {}
