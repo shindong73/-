@@ -825,7 +825,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
         news.sort(key=lambda x: (
-            x.get("priority", 100 if x["kind"] == "warning" else 0),
+            x.get("priority", (
+                100 if x["kind"] == "warning" else
+                headline_priority(x.get("source_title") or x["title"],
+                                  block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+            )),
             x["published_at"]
         ), reverse=True)
         candidate = [
@@ -835,7 +839,11 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             and item.get("kind") != "earthquake"
         ]
         candidate.sort(key=lambda x: (
-            x.get("priority", 100 if x["kind"] == "warning" else 0),
+            x.get("priority", (
+                100 if x["kind"] == "warning" else
+                headline_priority(x.get("source_title") or x["title"],
+                                  block_negative=bool(settings["exclude_unfavorable_dem_news"]))
+            )),
             x["published_at"]
         ), reverse=True)
         # Everything after this point is deterministic; no external AI calls.
