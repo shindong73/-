@@ -41,6 +41,17 @@ assert.equal(allowed({
   source_title:"미국 의회 선거 결과 발표"
 }),false, "foreign source must not become a domestic headline");
 
+assert.equal(allowed({
+  kind:"politics",
+  title:"국회가 주요 법안 처리 결정",
+  source_title:"[속보] 조국혁신당, 국회 주요 법안 처리 결정"
+}),false,"innovation party articles must be blocked even after headline paraphrasing");
+assert.equal(allowed({
+  kind:"politics",
+  title:"정부가 주요 정책 발표",
+  source_title:"혁신당 정책 관련 정부 주요 발표"
+}),false,"every innovation-party reference must be excluded");
+
 assert.equal(allowed({kind:"politics",title:"국회 예산안 가결"}),false,
   "legacy unsourced articles must not replay publisher originals");
 assert.equal(allowed({kind:"earthquake",title:"한반도 인근 규모 4.3 지진 발생"}),false,
