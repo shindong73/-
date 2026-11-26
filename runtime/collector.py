@@ -821,6 +821,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     new = []
     failures = []
     news_source_successes = 0
+    eligible_feed_articles = 0
+    candidate_articles = 0
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
     elif mode == "live":
@@ -847,6 +849,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     news_source_successes += 1
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
+        eligible_feed_articles = len(news)
         news.sort(key=lambda x: (
             x.get("priority", (
                 100 if x["kind"] == "warning" else
@@ -861,6 +864,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             and not str(item.get("id", "")).lower().startswith("usgs-")
             and item.get("kind") != "earthquake"
         ]
+        candidate_articles = len(candidate)
         candidate.sort(key=lambda x: (
             x.get("priority", (
                 100 if x["kind"] == "warning" else
@@ -971,6 +975,14 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "items": active,
         "history": history[-300:],
         "delivery_log": delivery_log,
+        # Explain empty output honestly. A working RSS poll can still yield no
+        # verified, safely paraphrased national breaking-news candidates.
+        "selection_diagnostics": ({
+            "rss_sources_ok": news_source_successes,
+            "eligible_feed_articles": eligible_feed_articles,
+            "candidate_articles": candidate_articles,
+            "newly_selected": len(new)
+        } if mode == "live" else prev.get("selection_diagnostics", {})),
         "last_check_errors": failures,
         # This heartbeat tracks a successful broadcaster request, not merely
         # an attempted workflow run. Keep it separate from last_scan_at:
@@ -991,6 +1003,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     }
     if (active != old_items or output["history"] != old_history or
             delivery_log != previous_log or output["last_scan_at"] != prev.get("last_scan_at")
+            or output["selection_diagnostics"] != prev.get("selection_diagnostics")
             or output["last_news_source_success_at"] != prev.get("last_news_source_success_at")
             or failures != prev.get("last_check_errors", [])
             or not OUT_PATH.exists()):
