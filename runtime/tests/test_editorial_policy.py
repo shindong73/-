@@ -13,6 +13,54 @@ CFG = {"headline_max_age_minutes": 180, "exclude_unfavorable_dem_news": True}
 
 
 class EditorialPolicyTests(unittest.TestCase):
+    def test_substantive_ordinary_headlines_are_allowed(self):
+        # The ticker must not require every real Korean policy development
+        # to be a cabinet shake-up or a high court judgment.
+        samples = {
+            "국회, 예산안 심사 착수": "국회가 예산안 심사 착수",
+            "정부, 청년 주거지원 확대 발표": "정부가 청년 주거지원 확대 발표",
+            "특검, 주요 사건 수사 착수": "특검이 주요 사건 수사 착수",
+            "정부 주택정책 개편 시행": "정부가 주택정책 개편 시행",
+            "국회, 법안 처리 합의…상임위 후속 논의": "국회가 법안 처리 합의",
+            "보건복지부, 지원 대상 확대 발표": "보건복지부가 지원 대상 확대 발표",
+            "국토교통부, 주택 공급계획 공개": "국토교통부가 주택 공급계획 공개",
+        }
+        for original, expected in samples.items():
+            with self.subTest(title=original):
+                self.assertTrue(collector.political_ok(original, block_negative=True))
+                self.assertGreater(collector.headline_priority(original), 0)
+                self.assertEqual(collector.rewrite_headline(original), expected)
+                self.assertNotEqual(collector.rewrite_headline(original), original)
+
+    def test_relaxed_rules_preserve_hard_safety_exclusions(self):
+        excluded = (
+            "[단독] 정부, 청년 주거지원 확대 발표",
+            "선관위, 개표 관련 정책 발표",
+            "정부, 부정선거 관련 대책 발표",
+            "울산시, 경제자유구역청장 해임 발표",
+            "국민의힘, 정부 정책 비판 논평",
+            "정부, 지원 정책 검토 발표 예정",
+            "이재명 대통령 전통시장 방문",
+            "정부, 수사 착수설 확산",
+            "북한 미사일 발사에 국회 긴급 대응",
+        )
+        for title in excluded:
+            with self.subTest(title=title):
+                self.assertEqual(collector.headline_priority(title), 0)
+
+    def test_regular_verified_policy_story_survives_rss_gate(self):
+        raw = (
+            "<rss><channel><item><title>보건복지부, 지원 대상 확대 발표</title>"
+            "<pubDate>Tue, 24 Nov 2026 00:39:00 GMT</pubDate>"
+            "<link>https://news.google.com/rss/articles/policy</link>"
+            "<source>KBS 뉴스</source></item></channel></rss>"
+        )
+        with patch.object(collector, "get_url", return_value=raw.encode("utf-8")):
+            results = collector.fetch_rss("KBS", collector.NEWS_FEEDS["KBS"], NOW, CFG)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["title"], "보건복지부가 지원 대상 확대 발표")
+        self.assertEqual(results[0]["priority"], 60)
+
     def test_confirmed_appeal_is_eligible_and_reworded(self):
         title = "특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소"
         self.assertGreater(collector.headline_priority(title), 0)
