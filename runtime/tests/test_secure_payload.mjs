@@ -28,6 +28,12 @@ try {
     last_scan_at:'2026-11-23T07:08:00Z',
     last_news_source_success_at:'2026-11-23T07:08:00Z',
     last_check_errors:[],
+    selection_diagnostics:{
+      rss_sources_ok:14,
+      eligible_feed_articles:3,
+      candidate_articles:1,
+      newly_selected:1
+    },
   };
   writeFileSync(join(temp,'private','payload.json'),JSON.stringify(sample));
   const run = mode => execFileSync('node',[runner,mode],
