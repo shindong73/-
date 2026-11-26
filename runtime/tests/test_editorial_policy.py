@@ -13,6 +13,39 @@ CFG = {"headline_max_age_minutes": 180, "exclude_unfavorable_dem_news": True}
 
 
 class EditorialPolicyTests(unittest.TestCase):
+    def test_confirmed_appeal_is_eligible_and_reworded(self):
+        title = "특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소"
+        self.assertGreater(collector.headline_priority(title), 0)
+        self.assertEqual(
+            collector.rewrite_headline(title),
+            "추경호 12·3 계엄 표결 방해 1심 무죄 판결…특검 항소"
+        )
+        rss = (
+            "<rss><channel><item>"
+            "<title>특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소</title>"
+            "<pubDate>Tue, 24 Nov 2026 00:39:00 GMT</pubDate>"
+            "<link>https://news.google.com/rss/articles/appeal</link>"
+            "<source>KBS 뉴스</source></item></channel></rss>"
+        )
+        with patch.object(collector, "get_url", return_value=rss.encode("utf-8")):
+            got = collector.fetch_rss("KBS", collector.NEWS_FEEDS["KBS"], NOW, CFG)
+        self.assertEqual(len(got), 1)
+        self.assertEqual(got[0]["priority"], 80)
+        self.assertEqual(got[0]["title"],
+                         "추경호 12·3 계엄 표결 방해 1심 무죄 판결…특검 항소")
+        self.assertNotEqual(got[0]["title"], got[0]["source_title"])
+
+    def test_unconfirmed_appeal_does_not_become_concrete_event(self):
+        for title in (
+            "특검, 추경호 1심 무죄 판결 항소 검토",
+            "특검, 추경호 1심 무죄 판결 항소 예정",
+            "특검, 추경호 1심 무죄 판결 항소 촉구",
+            "특검, 추경호 무죄 판결 비판",
+        ):
+            with self.subTest(title=title):
+                self.assertEqual(collector.headline_priority(title), 0)
+                self.assertIsNone(collector.rewrite_headline(title))
+
     def test_exclusive_badges_excluded_regardless_of_topic(self):
         exclusive = (
             "[단독] 국회, 예산안 최종 가결",
