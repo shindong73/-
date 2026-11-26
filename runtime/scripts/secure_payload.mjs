@@ -51,6 +51,8 @@ if (command === 'restore') {
     items:data.items,
     history:Array.isArray(data.history)?data.history:[],
     delivery_log:Array.isArray(data.delivery_log)?data.delivery_log:[],
+    selection_diagnostics:data.selection_diagnostics && typeof data.selection_diagnostics==='object'
+      ? data.selection_diagnostics:{},
     generated_at:typeof data.generated_at==='string'?data.generated_at:null,
     last_scan_at:typeof data.last_scan_at==='string'?data.last_scan_at:null,
     last_news_source_success_at:typeof data.last_news_source_success_at==='string'?data.last_news_source_success_at:null,
@@ -66,6 +68,8 @@ if (command === 'restore') {
     items:current.items,
     history:Array.isArray(current.history)?current.history:[],
     delivery_log:Array.isArray(current.delivery_log)?current.delivery_log:[],
+    selection_diagnostics:current.selection_diagnostics && typeof current.selection_diagnostics==='object'
+      ? current.selection_diagnostics:{},
     generated_at:typeof current.generated_at==='string'?current.generated_at:null,
     last_scan_at:typeof current.last_scan_at==='string'?current.last_scan_at:null,
     last_news_source_success_at:typeof current.last_news_source_success_at==='string'?current.last_news_source_success_at:null,
