@@ -10,6 +10,10 @@ const to = view.indexOf('  function fromBase64(b64) {', from);
 const readyFrom = view.indexOf('  function canStartCaption(item, now = Date.now()) {');
 const readyTo = view.indexOf('  let lastPayload',readyFrom);
 assert.ok(from > 0 && to > from && readyFrom > 0 && readyTo > readyFrom);
+assert.ok(view.includes('const MAX_AGE_MS = 50 * 60 * 1000;'),
+  'selected politics must remain available across several 12-minute cooldowns');
+assert.ok(view.includes('const WARNING_MAX_AGE_MS = 15 * 60 * 1000;'),
+  'civil-defense warnings must keep their short age limit');
 assert.ok(view.includes('if (raw === lastPayload) { next(); return; }'),
   'unchanged payload must continue driving queued captions');
 assert.ok(view.includes('localStorage.getItem(LAST_DISPLAY_AT_KEY)'),
@@ -35,7 +39,9 @@ const context = {
   allowBroadcast(item) {return item.id !== 'rejected';}
 };
 const harness = `(() => {
-  const DISPLAY_MS = 30000, MAX_AGE_MS = 16 * 60000;
+  const DISPLAY_MS = 30000, MAX_AGE_MS = 50 * 60000;
+  const WARNING_MAX_AGE_MS = 15 * 60000;
+  const maxDisplayAge = item => item?.kind === 'warning' ? WARNING_MAX_AGE_MS : MAX_AGE_MS;
   const MIN_DISPLAY_GAP_MS = 12 * 60000;
   const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';
   let lastDisplayAt = 0, active = false;
@@ -60,13 +66,13 @@ function advance(ms) {
   }
   clock=limit;
 }
-ticker.offer(article('first'));ticker.offer(article('second'));
+ticker.offer(article('first'));ticker.offer(article('second'));ticker.offer(article('third'));
 ticker.next();
 assert.deepEqual(records,['first'],'first story must start immediately');
 assert.equal(Number(stored.get('view-last-news-display-v1')),clock);
 advance(30360);
 assert.deepEqual(records,['first'],'second must not start immediately after 30-second caption');
-assert.equal(ticker.queue.length,1,'queued item must not disappear during cooldown');
+assert.equal(ticker.queue.length,2,'queued articles must not disappear during cooldown');
 advance(11*60000);
 ticker.next();
 assert.deepEqual(records,['first'],'cooldown must enforce 12 minutes since first start');
@@ -74,6 +80,15 @@ advance(12*60000-(clock-Date.parse('2026-11-26T00:00:00Z'))+100);
 ticker.next();
 assert.deepEqual(records,['first','second'],'next item should show at 12-minute mark');
 assert.equal(ticker.seen.second>0,true);
+advance(12*60000+100);
+ticker.next();
+assert.deepEqual(records,['first','second','third'],
+  'third selected headline must reach OBS 24 minutes later instead of expiring at 16 minutes');
+const oldWarning = {...article('expired-warning','warning',100),
+  detected_at:'2026-11-26T00:00:00Z'};
+ticker.offer(oldWarning);
+assert.equal(ticker.queued.has('expired-warning'),false,
+  'old civil-defense warning must never be resurrected by the longer politics queue');
 const logFrom = view.indexOf('  let volatileDisplayedLog = [];');
 const logTo = view.indexOf('  async function syncDisplayedLog()',logFrom);
 assert.ok(logFrom > 0 && logTo > logFrom);

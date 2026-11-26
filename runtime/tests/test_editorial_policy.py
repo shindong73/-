@@ -108,6 +108,19 @@ class EditorialPolicyTests(unittest.TestCase):
             with self.subTest(title=title):
                 self.assertEqual(collector.headline_priority(title), 0)
 
+    def test_innovation_party_is_never_selected(self):
+        samples = (
+            "조국혁신당, 주요 법안 추진 발표",
+            "[속보] 혁신당 원내대표 새 인선 발표",
+            "국회 조국혁신당 의석 관련 처리 결정",
+            "정부가 혁신당 공약 수용 발표",
+        )
+        for title in samples:
+            with self.subTest(title=title):
+                self.assertTrue(collector.excluded_ticker_topic(title))
+                self.assertFalse(collector.political_ok(title, block_negative=True))
+                self.assertEqual(collector.headline_priority(title), 0)
+
     def test_exclusive_badges_excluded_regardless_of_topic(self):
         exclusive = (
             "[단독] 국회, 예산안 최종 가결",
