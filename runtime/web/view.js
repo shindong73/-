@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'deep-audit-20261126a';
+  const SCRIPT_VERSION = 'balanced-news-20261126b';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
