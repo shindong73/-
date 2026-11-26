@@ -1,12 +1,16 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'balanced-news-20261126b';
+  const SCRIPT_VERSION = 'queue-fix-20261126c';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
   const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';
   const POLL_MS = 3000;
-  const MAX_AGE_MS = 16 * 60 * 1000;
+  // Keep accepted politics available through multiple 12-minute captions.
+  // Never replay a civil-defense warning outside its short 15-minute window.
+  const MAX_AGE_MS = 50 * 60 * 1000;
+  const WARNING_MAX_AGE_MS = 15 * 60 * 1000;
+  const maxDisplayAge = item => item?.kind === 'warning' ? WARNING_MAX_AGE_MS : MAX_AGE_MS;
   const frame = document.querySelector('#frame');
   const bar = document.querySelector('#bar');
   const strip = document.querySelector('#red-strip');
@@ -220,11 +224,13 @@
   // user-excluded election topics or low-impact local personnel news.
   // Source-exclusive labels are never eligible even after the title is rewritten.
   const exclusiveTag = /[\[［【(（]\s*단독(?:\s*보도)?\s*[\]］】)）]/;
+  const excludedPartyTopic = /조국\s*혁신당|혁신당/;
   const excludedElectionTopic = /선\s*관\s*위|선거\s*관리\s*위원회|부정\s*선거|선거\s*(?:조작|부정)|(?:사전\s*)?(?:투표|개표|투표지|투표함)\s*(?:조작|부정)|(?:조작|부정)\s*(?:투표|개표|투표지|투표함)/;
   const minorLocalPost = /경제자유구역청(?:장)?|부시장|부지사|부군수|부구청장|(?:시청|도청|군청|구청).{0,35}?(?:국장|과장|실장|본부장|센터장|사업소장)|(?:도시|관광|시설관리|교통|환경|개발|문화|체육)\s*(?:공사|공단|재단).{0,18}?(?:이사장|사장|대표|원장|본부장)|(?:시|도|군|구)\s*(?:산하|소속).{0,30}?(?:국장|과장|실장|본부장|센터장|이사장|사장|대표)/;
   const personnelAction = /사의|사표|사직서|사퇴|사임|경질|해임|교체|발탁|내정|지명|임명/;
   function excludedHeadline(text) {
     return exclusiveTag.test(text) || excludedElectionTopic.test(text) ||
+      excludedPartyTopic.test(text) ||
       (personnelAction.test(text) && minorLocalPost.test(text));
   }
   function normalizedPublisherTitle(text) {
@@ -310,7 +316,7 @@
       const item = queue[0];
       const discovered = Date.parse(item.detected_at || item.published_at);
       // A large backlog must never play expired news after its 16-minute TTL.
-      if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS ||
+      if (!Number.isFinite(discovered) || discovered < Date.now() - maxDisplayAge(item) ||
           discovered > Date.now() + 300000 || seen[item.id] || !allowBroadcast(item)) {
         queue.shift();
         queued.delete(item.id);
@@ -331,7 +337,7 @@
       || !item.id || !item.title || seen[item.id] || queued.has(item.id)) return;
     if (!['politics','earthquake','warning'].includes(item.kind)) return;
     const discovered = Date.parse(item.detected_at || item.published_at);
-    if (!Number.isFinite(discovered) || discovered < Date.now() - MAX_AGE_MS || discovered > Date.now() + 300000) return;
+    if (!Number.isFinite(discovered) || discovered < Date.now() - maxDisplayAge(item) || discovered > Date.now() + 300000) return;
     queued.add(item.id);
     queue.push(item);
     queue.sort((a,b) => Number(b.kind==='warning') - Number(a.kind==='warning')
