@@ -32,6 +32,21 @@ class EditorialPolicyTests(unittest.TestCase):
                 self.assertEqual(collector.rewrite_headline(original), expected)
                 self.assertNotEqual(collector.rewrite_headline(original), original)
 
+    def test_generic_government_still_requires_no_foreign_context(self):
+        self.assertTrue(collector.political_ok(
+            "정부, 청년 주거지원 확대 발표", block_negative=True))
+        self.assertGreater(collector.headline_priority(
+            "정부 주택정책 개편 시행"), 0)
+        for foreign in (
+            "에티오피아 정부 총리 임명",
+            "페루 정부 대통령 사임",
+            "남아공 정부 세제개편 발표",
+            "미국 정부 주거지원 확대 발표",
+        ):
+            with self.subTest(foreign=foreign):
+                self.assertFalse(collector.political_ok(
+                    foreign, block_negative=True))
+
     def test_relaxed_rules_preserve_hard_safety_exclusions(self):
         excluded = (
             "[단독] 정부, 청년 주거지원 확대 발표",
