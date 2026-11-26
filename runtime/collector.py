@@ -383,6 +383,19 @@ ROUTINE_EVENT_RE = re.compile(
     r"토론회|공청회|기념식|회의\s*참석"
 )
 
+# A verified domestic headline can be useful without a court ruling or
+# a cabinet reshuffle. Include concrete policy, legislative and investigative
+# developments; unchanged bans and non-factual speculation still take priority.
+SUBSTANTIVE_NEWS_ACTION_RE = re.compile(
+    r"공식\s*발표|대책\s*발표|발표|공개|의결|가결|부결|확정|결정|"
+    r"시행|도입|폐지|확대|축소|인상|인하|개편|합의|타결|결렬|"
+    r"심사\s*착수|심사\s*시작|심의\s*시작|수사\s*착수|"
+    r"압수수색|기소|불기소|체포|구속|구속영장|항소|상고|"
+    r"법안\s*발의|법안\s*제출|예산안\s*제출|의견서\s*제출|"
+    r"제도\s*개선|지원\s*확대|지원\s*개시|협상\s*타결|협상\s*결렬|"
+    r"사업\s*착수|시범\s*사업\s*시작|정책\s*추진|본격\s*추진"
+)
+
 def headline_priority(title: str, *, block_negative: bool = True) -> int:
     """Rule-only desk score. 0 means not a confirmed high-impact national event.
 
@@ -403,6 +416,10 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
         return 0
     if CONFIRMED_NATIONAL_ACTION_RE.search(title):
         return 80
+    # Broader, lower-priority verified developments are valid ticker items.
+    # They do not displace confirmed major decisions or civil warnings.
+    if SUBSTANTIVE_NEWS_ACTION_RE.search(title):
+        return 60
     return 0
 
 
@@ -573,6 +590,36 @@ def rewrite_headline(original: str) -> str | None:
 
     if meaningful_rewrite and not re.search(r'[“”"「」『』‘’]', title):
         return title[:100]
+
+    # Wider safe caption rewrite for brief, factual headlines. Keep the
+    # actual actor, action and outcome, but drop unrelated follow-up clauses.
+    # This addresses common titles such as "정부, ... 시행" and
+    # "국회 예산안 심사 착수" which the former tiny verb whitelist dropped.
+    if not re.search(r'[“”"「」『』‘’]', title) and not UNCONFIRMED_EVENT_RE.search(title):
+        primary = re.split(r"\s*[.…‥]{1,3}\s*", title, maxsplit=1)[0].strip()
+        actor_clause = re.fullmatch(
+            r"(?P<actor>[가-힣A-Za-z0-9·\s]{2,32}?)\s*[,，]\s*"
+            r"(?P<action>.{5,90})", primary
+        )
+        if actor_clause and SUBSTANTIVE_NEWS_ACTION_RE.search(actor_clause.group("action")):
+            actor, action = actor_clause.group("actor").strip(), actor_clause.group("action").strip()
+            final = actor[-1]
+            particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
+            return f"{actor}{particle} {action}"[:100]
+        # No-comma publisher headlines from official domestic institutions.
+        for actor in (
+            "이재명 대통령", "이 대통령", "대통령실", "국무회의", "국무총리",
+            "국회", "정부", "헌법재판소", "헌재", "대법원", "특검", "검찰",
+            "교육부", "보건복지부", "행정안전부", "기획재정부", "금융위원회",
+            "외교부", "통일부", "국민의힘", "민주당"
+        ):
+            if primary.startswith(actor + " "):
+                action = primary[len(actor):].strip()
+                if len(action) >= 6 and SUBSTANTIVE_NEWS_ACTION_RE.search(action):
+                    final = actor[-1]
+                    particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
+                    return f"{actor}{particle} {action}"[:100]
+
     # Fail closed: a word-for-word publisher title is less valuable than
     # withholding a headline that cannot be safely summarized from the facts.
     # Rewording still does NOT by itself guarantee copyright clearance.
