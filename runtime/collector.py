@@ -116,6 +116,10 @@ EXCLUDED_ELECTION_TOPIC_RE = re.compile(
     r"(?:조작|부정)\s*(?:투표|개표|투표지|투표함)"
 )
 
+# User-requested exclusion of all Reform Party / 조국혁신당-related coverage,
+# including items whose rewritten caption no longer names the party.
+EXCLUDED_PARTY_TOPIC_RE = re.compile(r"조국\s*혁신당|혁신당")
+
 # A local office/personnel reshuffle is usually not national breaking news.
 # Apply only when the headline includes a personnel action, so local-policy
 # decisions and high-impact incidents elsewhere in the ticker remain eligible.
@@ -132,7 +136,8 @@ LOCAL_MINOR_PERSONNEL_POST_RE = re.compile(
 def excluded_ticker_topic(title: str) -> bool:
     """Reject exclusive tags, election topics and minor local personnel."""
     return bool(EXCLUSIVE_TAG_RE.search(title)
-        or EXCLUDED_ELECTION_TOPIC_RE.search(title) or (
+        or EXCLUDED_ELECTION_TOPIC_RE.search(title)
+        or EXCLUDED_PARTY_TOPIC_RE.search(title) or (
         GOVERNMENT_PERSONNEL_ACTION_RE.search(title)
         and LOCAL_MINOR_PERSONNEL_POST_RE.search(title)
     ))
