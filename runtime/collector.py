@@ -371,11 +371,12 @@ CONFIRMED_NATIONAL_ACTION_RE = re.compile(
     r"(?:국회|정부|대통령실|청와대|대통령|헌법재판소|헌재|대법원|국무회의|"
     r"특검|검찰|기획재정부|금융위원회|금융당국)"
     r".{0,65}?(?:가결|부결|의결|통과|선고|판결|파면|기각|구속|체포|기소|"
-    r"최종\s*확정|공식\s*발표|발효|공포|시행|제정|개정)"
+    r"최종\s*확정|공식\s*발표|발효|공포|시행|제정|개정|항소|상고)"
 )
 UNCONFIRMED_EVENT_RE = re.compile(
     r"(?:인사|사퇴|교체|임명|경질|발탁)설|가능성|관측|전망|검토|촉구|요구|"
-    r"예정|예고|논의\s*중|추측|하마평|여부|의혹|주장|비판|반박|논평|공방"
+    r"예정|예고|논의\s*중|추측|하마평|여부|주장|비판|반박|논평|공방|"
+    r"항소\s*(?:방침|계획|예정)|상고\s*(?:방침|계획|예정)"
 )
 ROUTINE_EVENT_RE = re.compile(
     r"방문|참석|축사|인사말|간담회|기자회견|민생\s*행보|현장\s*점검|"
@@ -444,6 +445,19 @@ def rewrite_headline(original: str) -> str | None:
     title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) < 8 or len(title) > 130:
         return None
+
+    # Verified court procedure: rewrite an actual special-counsel appeal as
+    # a procedural result, not an assertion that the defendant is guilty.
+    # A quoted case label is not a quotation of a party's opinion here.
+    appeal = re.fullmatch(
+        r"(?P<actor>특검|검찰|대검찰청)\s*[,，]\s*"
+        r"(?P<case>[^\n]{3,90}?)\s*1심\s*(?P<verdict>무죄|유죄)"
+        r"(?:\s*판결)?(?:에|에\s*불복해?)\s*항소(?:했다)?", title
+    )
+    if appeal:
+        case = re.sub(r"[‘’'\"“”]", "", appeal.group("case")).strip()
+        if 3 <= len(case) <= 55 and not re.search(r"촉구|요구|검토|예정|가능성|주장", case):
+            return f"{case} 1심 {appeal.group('verdict')} 판결…{appeal.group('actor')} 항소"
 
     # An explicit responsibility-taking resignation can be summarized without
     # repeating the journalist's entire quote or adding speculative details.
@@ -622,7 +636,9 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         timeout=6 if optional_direct else 12
     ))
     items = []
-    counters = {"raw": 0, "politics": 0, "recent": 0, "source": 0}
+    counters = {"raw": 0, "excluded": 0, "priority_rejected": 0,
+                "politics": 0, "stale": 0, "recent": 0, "source": 0,
+                "rewrite_rejected": 0}
     candidates = root.findall(".//item") or root.findall(".//{*}entry")
     ages_minutes = []
     for item in candidates:
@@ -631,6 +647,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         warning_title = confirmed_warning_caption(title)
         # Excluded topics do not belong in any automatic ticker category.
         if excluded_ticker_topic(title):
+            counters["excluded"] += 1
             continue
         # Stage 1: hard bans. Stage 2: verified concrete event classification.
         # A breaking badge is not enough: only high-impact completed actions
@@ -641,6 +658,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
                 "경계경보" in title.replace(" ", "")
                 or re.search(r"미사일|탄도탄|탄도미사일|발사체|ICBM|SLBM", title, re.I)
                 or not priority):
+            counters["priority_rejected"] += 1
             continue
         counters["politics"] += 1
         published = parse_date(item.findtext("pubDate") or item.findtext("published") or
@@ -648,6 +666,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         if published:
             ages_minutes.append(round((current - published).total_seconds()/60))
         if not published or not (current - timedelta(minutes=settings["headline_max_age_minutes"]) <= published <= current + timedelta(minutes=5)):
+            counters["stale"] += 1
             continue
         # Never replay an old civil-defense issuance as if it were a current
         # warning. Political headlines may use the longer general news TTL.
@@ -680,6 +699,7 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         rewritten = warning_title or rewrite_headline(title)
         # Stage 3: never broadcast unchanged/unsafe publisher headlines.
         if not rewritten:
+            counters["rewrite_rejected"] += 1
             continue
         items.append({
             "id": stable_id(source, link, title),
@@ -696,9 +716,11 @@ def fetch_rss(source: str, url: str, current: datetime, settings: dict) -> list[
         })
     # Counts only. Never log article headlines or broadcast labels publicly.
     youngest = min(ages_minutes) if ages_minutes else "n/a"
-    print(f"RSS {source}: seen={counters['raw']} political={counters['politics']} "
-          f"recent={counters['recent']} verified={counters['source']} eligible={len(items)} "
-          f"youngest_age_min={youngest}")
+    print(f"RSS {source}: seen={counters['raw']} excluded={counters['excluded']} "
+          f"policy_rejected={counters['priority_rejected']} political={counters['politics']} "
+          f"stale={counters['stale']} recent={counters['recent']} "
+          f"verified={counters['source']} rewrite_rejected={counters['rewrite_rejected']} "
+          f"eligible={len(items)} youngest_age_min={youngest}")
     return items
 
 
@@ -799,6 +821,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     new = []
     failures = []
     news_source_successes = 0
+    eligible_feed_articles = 0
+    candidate_articles = 0
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
     elif mode == "live":
@@ -825,6 +849,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
                     news_source_successes += 1
                 except Exception as exc:
                     failures.append(f"{source} feed error: {exc}")
+        eligible_feed_articles = len(news)
         news.sort(key=lambda x: (
             x.get("priority", (
                 100 if x["kind"] == "warning" else
@@ -839,6 +864,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             and not str(item.get("id", "")).lower().startswith("usgs-")
             and item.get("kind") != "earthquake"
         ]
+        candidate_articles = len(candidate)
         candidate.sort(key=lambda x: (
             x.get("priority", (
                 100 if x["kind"] == "warning" else
@@ -949,6 +975,14 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         "items": active,
         "history": history[-300:],
         "delivery_log": delivery_log,
+        # Explain empty output honestly. A working RSS poll can still yield no
+        # verified, safely paraphrased national breaking-news candidates.
+        "selection_diagnostics": ({
+            "rss_sources_ok": news_source_successes,
+            "eligible_feed_articles": eligible_feed_articles,
+            "candidate_articles": candidate_articles,
+            "newly_selected": len(new)
+        } if mode == "live" else prev.get("selection_diagnostics", {})),
         "last_check_errors": failures,
         # This heartbeat tracks a successful broadcaster request, not merely
         # an attempted workflow run. Keep it separate from last_scan_at:
@@ -969,6 +1003,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     }
     if (active != old_items or output["history"] != old_history or
             delivery_log != previous_log or output["last_scan_at"] != prev.get("last_scan_at")
+            or output["selection_diagnostics"] != prev.get("selection_diagnostics")
             or output["last_news_source_success_at"] != prev.get("last_news_source_success_at")
             or failures != prev.get("last_check_errors", [])
             or not OUT_PATH.exists()):

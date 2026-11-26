@@ -9,6 +9,7 @@
   let remote = [], local = [], displayed = [], selected = [];
   let refreshing = false, remoteError = '', remoteLimited = false;
   let scanError = '', scanAt = '', newsSuccessAt = '', scanFailures = [];
+  let selectionDiagnostics = {};
   let captionKeyPromise = null;
   const dateKst = value => {
     const n = Date.parse(value || '');
@@ -132,6 +133,14 @@
       if(scanAt && Date.now()-Date.parse(scanAt)>30*60000)
         notes.push('뉴스 서버 수집이 30분 이상 갱신되지 않았습니다.');
       if(scanFailures.length) notes.push('최근 수집 작업에 오류 '+scanFailures.length+'건이 있습니다.');
+      if(Number.isFinite(selectionDiagnostics.rss_sources_ok)) {
+        const stat=selectionDiagnostics;
+        notes.push('최근 자동 수집: RSS 경로 '+stat.rss_sources_ok+'개 성공, '+
+          '방송용 후보 '+(Number(stat.candidate_articles)||0)+'건, 새 선정 '+
+          (Number(stat.newly_selected)||0)+'건.');
+        if(stat.rss_sources_ok>0 && !stat.candidate_articles)
+          notes.push('자동 수집은 정상이나 최근 검색 기사 중 필터·재작성 기준을 통과한 뉴스가 없습니다.');
+      }
       if(newsSuccessAt && Date.now()-Date.parse(newsSuccessAt)>30*60000)
         notes.push('뉴스 RSS 수집 성공이 30분 이상 확인되지 않았습니다.');
     }
@@ -190,6 +199,8 @@
       scanAt=data.last_scan_at || data.generated_at || '';
       newsSuccessAt=data.last_news_source_success_at || '';
       scanFailures=Array.isArray(data.last_check_errors) ? data.last_check_errors : [];
+      selectionDiagnostics=data.selection_diagnostics && typeof data.selection_diagnostics==='object'
+        ? data.selection_diagnostics : {};
       // Keep the authoritative selected feed separate from actual display logs.
       // The collection trail is visible even if the optional KV binding is absent.
       selected=(Array.isArray(data.delivery_log) ? data.delivery_log : [])
