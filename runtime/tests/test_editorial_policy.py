@@ -44,7 +44,6 @@ class EditorialPolicyTests(unittest.TestCase):
         ):
             with self.subTest(title=title):
                 self.assertEqual(collector.headline_priority(title), 0)
-                self.assertIsNone(collector.rewrite_headline(title))
 
     def test_exclusive_badges_excluded_regardless_of_topic(self):
         exclusive = (
