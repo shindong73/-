@@ -18,6 +18,18 @@ assert.equal(allowed({
   title:"새 후보자 다섯 명 발표",
   source_title:"[속보] 청와대 국정원장 강금실 지명"
 }),true, "broadcast rewrite without an actor must not drop approved domestic news");
+assert.equal(allowed({
+  kind:"politics",
+  title:"보건복지부가 지원 대상 확대 발표",
+  source_title:"보건복지부, 지원 대상 확대 발표"
+}),true, "verified national-ministry policy coverage should reach OBS");
+
+assert.equal(allowed({
+  kind:"politics",
+  title:"국토교통부가 주택 공급계획 공개",
+  source_title:"국토교통부, 주택 공급계획 공개"
+}),true, "major national policy news should not be blocked by viewer");
+
 
 assert.equal(allowed({
   kind:"politics",title:"정부 인사 발표",

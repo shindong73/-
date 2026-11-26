@@ -95,6 +95,8 @@ POLITICAL_RE = re.compile(
     r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
     r"민주유공자|사법개혁|정책발표|국정과제|공직|최교진|최민희|"
     r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
+    r"보건복지부|복지부|국토교통부|국토부|고용노동부|노동부|"
+    r"금융감독원|경찰청|기상청|행정안전부|기획재정부|산업통상부|"
     r"사의|사표|사퇴|사임|임명|발탁|내정|지명|경질|해임|인사|인선|개각|국정원장|국가정보원|외교부|통일부|행안부|문체부"
 )
 # Source labels marked as exclusive are deliberately excluded even if they
@@ -189,6 +191,8 @@ DOMESTIC_CONTEXT_RE = re.compile(
     r"서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|"
     r"경북|경남|전북|전남|강원|제주|여의도|용산|"
     r"국회의원|행정안전부|기획재정부|금융위원회|민생|법무부|"
+    r"보건복지부|복지부|국토교통부|국토부|고용노동부|노동부|"
+    r"금융감독원|경찰청|기상청|산업통상부|"
     r"국정원장|국가정보원|국정원|개각|인선|외교부|외교장관|통일부|통일장관|행안부|행안장관|문체부|문체장관|문화체육관광부|강금실|임웅순|홍익표|한준호|강유정",
     re.I,
 )
@@ -374,13 +378,27 @@ CONFIRMED_NATIONAL_ACTION_RE = re.compile(
     r"최종\s*확정|공식\s*발표|발효|공포|시행|제정|개정|항소|상고)"
 )
 UNCONFIRMED_EVENT_RE = re.compile(
-    r"(?:인사|사퇴|교체|임명|경질|발탁)설|가능성|관측|전망|검토|촉구|요구|"
+    r"(?:인사|사퇴|교체|임명|경질|발탁)설|수사\s*착수설|발표설|확대설|시행설|"
+    r"가능성|관측|전망|검토|촉구|요구|"
     r"예정|예고|논의\s*중|추측|하마평|여부|주장|비판|반박|논평|공방|"
     r"항소\s*(?:방침|계획|예정)|상고\s*(?:방침|계획|예정)"
 )
 ROUTINE_EVENT_RE = re.compile(
     r"방문|참석|축사|인사말|간담회|기자회견|민생\s*행보|현장\s*점검|"
     r"토론회|공청회|기념식|회의\s*참석"
+)
+
+# A verified domestic headline can be useful without a court ruling or
+# a cabinet reshuffle. Include concrete policy, legislative and investigative
+# developments; unchanged bans and non-factual speculation still take priority.
+SUBSTANTIVE_NEWS_ACTION_RE = re.compile(
+    r"공식\s*발표|대책\s*발표|발표|공개|의결|가결|부결|확정|결정|"
+    r"시행|도입|폐지|확대|축소|인상|인하|개편|합의|타결|결렬|"
+    r"심사\s*착수|심사\s*시작|심의\s*시작|수사\s*착수|"
+    r"압수수색|기소|불기소|체포|구속|구속영장|항소|상고|"
+    r"법안\s*발의|법안\s*제출|예산안\s*제출|의견서\s*제출|"
+    r"제도\s*개선|지원\s*확대|지원\s*개시|협상\s*타결|협상\s*결렬|"
+    r"사업\s*착수|시범\s*사업\s*시작|정책\s*추진|본격\s*추진"
 )
 
 def headline_priority(title: str, *, block_negative: bool = True) -> int:
@@ -403,6 +421,10 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
         return 0
     if CONFIRMED_NATIONAL_ACTION_RE.search(title):
         return 80
+    # Broader, lower-priority verified developments are valid ticker items.
+    # They do not displace confirmed major decisions or civil warnings.
+    if SUBSTANTIVE_NEWS_ACTION_RE.search(title):
+        return 60
     return 0
 
 
@@ -573,6 +595,36 @@ def rewrite_headline(original: str) -> str | None:
 
     if meaningful_rewrite and not re.search(r'[“”"「」『』‘’]', title):
         return title[:100]
+
+    # Wider safe caption rewrite for brief, factual headlines. Keep the
+    # actual actor, action and outcome, but drop unrelated follow-up clauses.
+    # This addresses common titles such as "정부, ... 시행" and
+    # "국회 예산안 심사 착수" which the former tiny verb whitelist dropped.
+    if not re.search(r'[“”"「」『』‘’]', title) and not UNCONFIRMED_EVENT_RE.search(title):
+        primary = re.split(r"\s*[.…‥]{1,3}\s*", title, maxsplit=1)[0].strip()
+        actor_clause = re.fullmatch(
+            r"(?P<actor>[가-힣A-Za-z0-9·\s]{2,32}?)\s*[,，]\s*"
+            r"(?P<action>.{5,90})", primary
+        )
+        if actor_clause and SUBSTANTIVE_NEWS_ACTION_RE.search(actor_clause.group("action")):
+            actor, action = actor_clause.group("actor").strip(), actor_clause.group("action").strip()
+            final = actor[-1]
+            particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
+            return f"{actor}{particle} {action}"[:100]
+        # No-comma publisher headlines from official domestic institutions.
+        for actor in (
+            "이재명 대통령", "이 대통령", "대통령실", "국무회의", "국무총리",
+            "국회", "정부", "헌법재판소", "헌재", "대법원", "특검", "검찰",
+            "교육부", "보건복지부", "행정안전부", "기획재정부", "금융위원회",
+            "외교부", "통일부", "국민의힘", "민주당"
+        ):
+            if primary.startswith(actor + " "):
+                action = primary[len(actor):].strip()
+                if len(action) >= 6 and SUBSTANTIVE_NEWS_ACTION_RE.search(action):
+                    final = actor[-1]
+                    particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
+                    return f"{actor}{particle} {action}"[:100]
+
     # Fail closed: a word-for-word publisher title is less valuable than
     # withholding a headline that cannot be safely summarized from the facts.
     # Rewording still does NOT by itself guarantee copyright clearance.
