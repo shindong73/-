@@ -229,6 +229,11 @@
   }
   $('query').addEventListener('input',render);
   $('refresh').addEventListener('click',refresh);
+  $('diagnose-view').addEventListener('click',()=>{
+    // The secret remains in the fragment, never in the URL query or referrer.
+    // Diagnosis never plays a caption or registers a display-start event.
+    window.open('./view.html?diagnose=1'+location.hash,'_blank','noopener,noreferrer');
+  });
   $('export').addEventListener('click',exportCsv);
   refresh();
   // Stay within Cloudflare KV free-list quota; manual refresh stays immediate.
