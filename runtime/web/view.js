@@ -1,7 +1,7 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'president-manual-pages-20261127d';
-  const DISPLAY_MS = 30000;
+  const SCRIPT_VERSION = 'caption-40s-20261128a';
+  const DISPLAY_MS = 40000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
   const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';

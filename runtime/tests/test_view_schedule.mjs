@@ -52,7 +52,7 @@ const context = {
   allowBroadcast(item) {return item.id !== 'rejected';}
 };
 const harness = `(() => {
-  const DISPLAY_MS = 30000, MAX_AGE_MS = 50 * 60000;
+  const DISPLAY_MS = 40000, MAX_AGE_MS = 50 * 60000;
   const WARNING_MAX_AGE_MS = 15 * 60000;
   const maxDisplayAge = item => item?.kind === 'warning' ? WARNING_MAX_AGE_MS : MAX_AGE_MS;
   const MIN_DISPLAY_GAP_MS = 12 * 60000;
@@ -88,7 +88,10 @@ assert.equal(ticker.canStartCaption({is_manual:true},clock),true,
 assert.equal(ticker.canStartCaption({kind:'politics'},clock),false,
   'ordinary automatic politics still obeys the 12-minute cooldown');
 advance(30360);
-assert.deepEqual(records,['first'],'second must not start immediately after 30-second caption');
+assert.equal(ticker.state().active,true,'caption must remain visible at 30 seconds of 40-second duration');
+advance(10000);
+assert.equal(ticker.state().active,false,'caption must finish after 40 seconds and close animation');
+assert.deepEqual(records,['first'],'second must not start immediately after 40-second caption');
 assert.equal(ticker.queue.length,2,'queued articles must not disappear during cooldown');
 advance(11*60000);
 ticker.next();
@@ -132,7 +135,7 @@ const logTo = view.indexOf('  async function syncDisplayedLog()',logFrom);
 assert.ok(logFrom > 0 && logTo > logFrom);
 const logMemory = runInNewContext(`(() => {
   const DISPLAY_LOG_KEY = 'view-displayed-headlines-v1';
-  const DISPLAY_MS = 30000, LOG_API = '';
+  const DISPLAY_MS = 40000, LOG_API = '';
   const localStorage = {
     getItem(){return null;},
     setItem(){throw new Error('QuotaExceededError');}
@@ -141,6 +144,8 @@ const logMemory = runInNewContext(`(() => {
   return {recordDisplay,displayedLog,persistDisplayedLog};
 })()`);
 logMemory.recordDisplay({id:'log-1',kind:'politics',source:'KBS',title:'국회가 법안 가결'});
+assert.equal(logMemory.displayedLog()[0].planned_duration_seconds,40,
+  'actual display-start records must use 40 seconds');
 logMemory.recordDisplay({id:'log-2',kind:'politics',source:'MBC',title:'정부가 중대 결정 발표'});
 assert.equal(logMemory.displayedLog().length,2,
   'central-sync queue must retain new display records if localStorage fails');
