@@ -510,7 +510,10 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
         return False
     if confirmed_personnel_news(title):
         return True
-    if block_negative and DEM_ACTORS.search(title) and NEGATIVE_TERMS.search(title):
+    # Formally adopted high-profile party disciplinary rulings must never be
+    # suppressed based on sentiment, even under legacy block_negative=True.
+    if (block_negative and DEM_ACTORS.search(title) and NEGATIVE_TERMS.search(title)
+            and not confirmed_major_party_discipline(title)):
         return False
     return True
 
