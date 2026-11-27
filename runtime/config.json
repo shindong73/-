@@ -1,5 +1,5 @@
 {
-  "exclude_unfavorable_dem_news": true,
+  "exclude_unfavorable_dem_news": false,
   "headline_max_age_minutes": 90,
   "active_window_minutes": 50,
   "max_news_per_run": 3,
