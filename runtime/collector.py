@@ -37,29 +37,29 @@ UTC = timezone.utc
 # from being buried in large general politics feeds.
 NEWS_FEEDS = {
     "KBS": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사의) when:6h",
+        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "MBC": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사의) when:6h",
+        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "JTBC": "https://news-ex.jtbc.co.kr/v1/get/rss/newsflesh",
     "연합뉴스": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:yna.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 차관 OR 발탁 OR 사퇴 OR 사의) when:6h",
+        "q": "site:yna.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 차관 OR 법사위 OR 청문보고서 OR 법무 OR 발탁 OR 사퇴 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
 }
 JTBC_BACKUP = "https://fs.jtbc.co.kr/RSS/newsflash.xml"
 MBC_DIRECT_POLITICS_RSS = "https://imnews.imbc.com/rss/news/news_01.xml"
 JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
-    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 발탁 OR 사퇴) when:6h",
+    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사퇴) when:6h",
     "hl": "ko", "gl": "KR", "ceid": "KR:ko"
 })
 PERSONNEL_TERMS = "(사의 OR 사퇴 OR 사임 OR 사표 OR 발탁 OR 지명 OR 임명 OR 내정 OR 경질 OR 해임 OR 교체 OR 인선 OR 후보자)"
 FOCUSED_FEEDS = [
     (source, "https://news.google.com/rss/search?" + urlencode({
-        "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실 OR 국정원장 OR 국가정보원 OR 외교부 OR 통일부 OR 행안부 OR 문체부 OR 개각) {PERSONNEL_TERMS} when:6h",
+        "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실 OR 국정원장 OR 국가정보원 OR 외교부 OR 통일부 OR 행안부 OR 문체부 OR 개각 OR 법사위 OR 법무부 OR 법무) {PERSONNEL_TERMS} when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }))
     for source, domain in (
@@ -90,7 +90,7 @@ WARNING_FEEDS = [
 # Select verified recent politics articles with or without a breaking badge.
 BREAKING_RE = re.compile(r"(?:\[\s*(?:(?:긴급\s*)?속보|긴급)\s*\]|\(\s*속보\s*\)|【\s*속보\s*】|^\s*(?:속보|긴급)\s*[:：])", re.I)
 POLITICAL_RE = re.compile(
-    r"대통령|대통령실|청와대|국회|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
+    r"대통령|대통령실|청와대|국회|법사위|법제사법위원회|인사청문|청문보고서|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
     r"국무회의|정부|총리|장관|정당|선거|대선|총선|지방선거|의원|특검|탄핵|"
     r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
     r"민주유공자|사법개혁|정책발표|국정과제|공직|최교진|최민희|"
@@ -194,7 +194,7 @@ DOMESTIC_CONTEXT_RE = re.compile(
     r"대한민국|한국|국내|우리나라|이재명|이\s*대통령|李\s*대통령|尹\s*대통령|윤석열|최교진|"
     r"민주당|국민의힘|국힘|조국혁신당|정청래|최민희|김민석|조희대|추미애|교육부|"
     r"교육장관|교육부장관|국무위원|정부서울청사|정부세종청사|"
-    r"국회|대통령실|청와대|국무회의|국무총리|국정|정부|"
+    r"국회|법사위|법제사법위원회|인사청문|청문보고서|대통령실|청와대|국무회의|국무총리|국정|정부|"
     r"헌법재판소|헌재|대법원|검찰|특검|지방선거|수능|교육부|"
     r"서울|경기|인천|부산|대구|광주|대전|울산|세종|충북|충남|"
     r"경북|경남|전북|전남|강원|제주|여의도|용산|"
@@ -320,8 +320,8 @@ def clean_title(title: str) -> str:
 
 
 MAJOR_DECISION_RE = re.compile(
-    r"(?:국회|국무회의|헌법재판소|헌재|대법원|대통령실|선관위|정부)"
-    r".{0,45}?(?:가결|부결|의결|법안\s*통과|예산안\s*통과|최종\s*확정|선고|파면|기각|발효|공포)"
+    r"(?:국회|법사위|법제사법위원회|국무회의|헌법재판소|헌재|대법원|대통령실|선관위|정부)"
+    r".{0,85}?(?:가결|부결|의결|법안\s*통과|예산안\s*통과|(?:인사)?청문(?:경과)?보고서\s*채택|최종\s*확정|선고|파면|기각|발효|공포)"
 )
 
 
@@ -400,7 +400,7 @@ ROUTINE_EVENT_RE = re.compile(
 # a cabinet reshuffle. Include concrete policy, legislative and investigative
 # developments; unchanged bans and non-factual speculation still take priority.
 SUBSTANTIVE_NEWS_ACTION_RE = re.compile(
-    r"공식\s*발표|대책\s*발표|발표|공개|의결|가결|부결|확정|결정|"
+    r"공식\s*발표|대책\s*발표|발표|공개|채택|의결|가결|부결|확정|결정|"
     r"시행|도입|폐지|확대|축소|인상|인하|개편|합의|타결|결렬|"
     r"심사\s*착수|심사\s*시작|심의\s*시작|수사\s*착수|"
     r"압수수색|기소|불기소|체포|구속|구속영장|항소|상고|"
@@ -482,6 +482,22 @@ def rewrite_headline(original: str) -> str | None:
     title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) < 8 or len(title) > 130:
         return None
+
+    # Confirmed parliamentary hearing-report adoption is a nationally
+    # significant ministerial confirmation step. Do not confuse with a future
+    # plan to adopt, or rewrite a reported adoption as an appointment.
+    hearing = re.fullmatch(
+        r"(?:(?:국회\s*)?법사위|법제사법위원회)\s*[,，:：]?\s*"
+        r"(?:(?P<leading>與|여당|민주당)\s*주도로\s*)?"
+        r"(?P<person>[가-힣]{2,8})\s*법무(?:부)?\s*"
+        r"(?:장관\s*)?후보자?\s*(?:인사)?청문(?:경과)?보고서\s*채택",
+        title
+    )
+    if hearing:
+        person = hearing.group("person")
+        context = "여당 주도로 " if hearing.group("leading") else ""
+        return (f"{person} 법무부 장관 후보자 청문보고서, "
+                f"국회 법사위에서 {context}채택")
 
     # Verified court procedure: rewrite an actual special-counsel appeal as
     # a procedural result, not an assertion that the defendant is guilty.

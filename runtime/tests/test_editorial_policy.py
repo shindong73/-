@@ -96,6 +96,52 @@ class EditorialPolicyTests(unittest.TestCase):
             with self.subTest(excluded=excluded):
                 self.assertEqual(collector.headline_priority(excluded), 0)
 
+    def test_parliament_hearing_report_adoption_is_important_news(self):
+        title = "법사위, 與 주도로 이용철 법무 후보자 청문보고서 채택"
+        expected = ("이용철 법무부 장관 후보자 청문보고서, "
+                    "국회 법사위에서 여당 주도로 채택")
+        self.assertTrue(collector.political_ok(title, block_negative=True))
+        self.assertTrue(collector.domestic_politics_only(title))
+        self.assertEqual(collector.headline_priority(title), 90)
+        self.assertEqual(collector.rewrite_headline(title), expected)
+        self.assertNotEqual(expected, title)
+        from urllib.parse import unquote
+        self.assertIn("법사위", unquote(collector.NEWS_FEEDS["MBC"]))
+        self.assertIn("청문보고서", unquote(collector.NEWS_FEEDS["MBC"]))
+        for variant, caption in (
+            ("법사위, 이용철 법무장관 후보자 인사청문경과보고서 채택",
+             "이용철 법무부 장관 후보자 청문보고서, 국회 법사위에서 채택"),
+            ("[속보] 법사위, 여당 주도로 이용철 법무부 후보자 청문보고서 채택",
+             expected),
+        ):
+            with self.subTest(variant=variant):
+                self.assertGreater(collector.headline_priority(variant), 0)
+                self.assertEqual(collector.rewrite_headline(variant), caption)
+
+    def test_hearing_report_rss_mbc_source_and_exclusion_guards(self):
+        title = "법사위, 與 주도로 이용철 법무 후보자 청문보고서 채택"
+        raw = (
+            "<rss><channel><item><title>" + title + "</title>"
+            "<pubDate>Tue, 24 Nov 2026 00:39:00 GMT</pubDate>"
+            "<link>https://news.google.com/rss/articles/hearing-report</link>"
+            "<source>MBC 뉴스</source></item></channel></rss>"
+        )
+        with patch.object(collector, "get_url", return_value=raw.encode("utf-8")):
+            selected = collector.fetch_rss("MBC", collector.NEWS_FEEDS["MBC"], NOW, CFG)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0]["priority"], 90)
+        self.assertEqual(selected[0]["source"], "MBC")
+        self.assertEqual(selected[0]["source_title"], title)
+        self.assertNotEqual(selected[0]["title"], title)
+        for blocked in (
+            "[단독] " + title,
+            title + " 예정",
+            "법사위, 조국혁신당 주도로 이용철 법무 후보자 청문보고서 채택",
+            "선관위, 이용철 법무 후보자 청문보고서 채택",
+        ):
+            with self.subTest(blocked=blocked):
+                self.assertEqual(collector.headline_priority(blocked), 0)
+
     def test_confirmed_appeal_is_eligible_and_reworded(self):
         title = "특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소"
         self.assertGreater(collector.headline_priority(title), 0)
