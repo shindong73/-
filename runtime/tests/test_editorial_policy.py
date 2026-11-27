@@ -105,8 +105,9 @@ class EditorialPolicyTests(unittest.TestCase):
         self.assertEqual(collector.headline_priority(title), 90)
         self.assertEqual(collector.rewrite_headline(title), expected)
         self.assertNotEqual(expected, title)
-        self.assertIn("법사위", collector.NEWS_FEEDS["MBC"])
-        self.assertIn("청문보고서", collector.NEWS_FEEDS["MBC"])
+        from urllib.parse import unquote
+        self.assertIn("법사위", unquote(collector.NEWS_FEEDS["MBC"]))
+        self.assertIn("청문보고서", unquote(collector.NEWS_FEEDS["MBC"]))
         for variant, caption in (
             ("법사위, 이용철 법무장관 후보자 인사청문경과보고서 채택",
              "이용철 법무부 장관 후보자 청문보고서, 국회 법사위에서 채택"),
