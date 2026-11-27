@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'obs-visible-20261127b';
+  const SCRIPT_VERSION = 'hearing-reports-20261127c';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
