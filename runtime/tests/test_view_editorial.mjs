@@ -32,6 +32,25 @@ assert.equal(allowed({
 
 
 assert.equal(allowed({
+  kind:"politics",
+  title:"이용철 법무부 장관 후보자 청문보고서, 국회 법사위에서 여당 주도로 채택",
+  source_title:"법사위, 與 주도로 이용철 법무 후보자 청문보고서 채택",
+  source:"MBC"
+}), true, "confirmed law committee hearing-report adoption must pass OBS gate");
+assert.equal(allowed({
+  kind:"politics",
+  title:"이용철 법무부 장관 후보자 청문보고서, 국회 법사위에서 여당 주도로 채택",
+  source_title:"[단독] 법사위, 與 주도로 이용철 법무 후보자 청문보고서 채택",
+  source:"MBC"
+}), false, "exclusive report ban still overrides hearing event");
+assert.equal(allowed({
+  kind:"politics",
+  title:"이용철 법무부 장관 후보자 청문보고서, 국회 법사위에서 채택",
+  source_title:"법사위, 조국혁신당 주도로 이용철 법무 후보자 청문보고서 채택",
+  source:"MBC"
+}), false, "excluded party reports must stay blocked");
+
+assert.equal(allowed({
   kind:"politics",title:"정부 인사 발표",
   source_title:'국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"'
 }),false, "do not let a shortened caption bypass a party-opinion rejection");
