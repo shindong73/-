@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'obs-diagnose-20261127a';
+  const SCRIPT_VERSION = 'obs-visible-20261127b';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
@@ -336,6 +336,10 @@
   }
   function next() {
     if (active) return;
+    // OBS keeps browser sources alive even when their scene or source is hidden
+    // (unless "Shutdown source when not visible" is enabled). Do not consume
+    // an article or report a display-start event while OBS cannot show it.
+    if (window.obsstudio && document.visibilityState === 'hidden') return;
     while (queue.length) {
       const item = queue[0];
       const discovered = Date.parse(item.detected_at || item.published_at);
@@ -395,7 +399,7 @@
         const raw = await r.text();
         // A queued caption can become eligible after 12 minutes without any
         // change to the feed, so keep advancing the queue during steady-state.
-        if (raw === lastPayload) { if (!DIAGNOSE) next(); return; }
+        if (raw === lastPayload && !DIAGNOSE) { next(); return; }
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
         label.textContent = data.label;
@@ -409,15 +413,35 @@
             && Number.isFinite(Date.parse(x.detected_at || x.published_at))
             && Date.parse(x.detected_at || x.published_at) >= now-maxDisplayAge(x)
             && Date.parse(x.detected_at || x.published_at) <= now+300000);
+          const alreadyHandled = eligible.filter(x => !!seen[x.id]).length;
+          const pending = eligible.length - alreadyHandled;
+          const cooldownSeconds = Math.max(0, Math.ceil(
+            (MIN_DISPLAY_GAP_MS - (now-lastDisplayAt))/1000
+          ));
+          const isOBS = !!window.obsstudio;
+          const isHiddenOBS = isOBS && document.visibilityState === 'hidden';
           const stat = data.selection_diagnostics || {};
+          const reason = !eligible.length
+            ? '현재 화면에 표시할 유효한 기사가 없습니다.'
+            : isHiddenOBS
+              ? 'OBS 브라우저 소스가 숨겨져 있습니다. 활성 장면 및 소스 표시 상태를 확인하세요.'
+              : !pending
+                ? '이 브라우저에서 해당 기사를 이미 처리한 것으로 기록했습니다.'
+                : cooldownSeconds > 0
+                  ? '마지막 자막 이후 12분 제한으로 대기 중입니다.'
+                  : '이 브라우저에서는 표시할 수 있습니다. 실제 OBS 소스의 URL과 활성 상태를 확인하세요.';
           showDiagnostics(
             '암호화 피드 복호화 성공\\n' +
+            '실행 환경: ' + (isOBS ? 'OBS 브라우저 소스' : '일반 브라우저(OBS와 별도 상태)') + '\\n' +
+            '브라우저 가시성: ' + (document.visibilityState || '확인 불가') + '\\n' +
             '현재 서버 대기 기사: ' + data.items.length + '건\\n' +
-            'OBS 규칙·유효기간 통과: ' + eligible.length + '건\\n' +
+            '기사 규칙·유효기간 통과: ' + eligible.length + '건\\n' +
+            '이 브라우저에서 이미 처리한 기사: ' + alreadyHandled + '건\\n' +
+            '이 브라우저의 미처리 기사: ' + pending + '건\\n' +
+            '12분 제한 잔여: ' + Math.ceil(cooldownSeconds/60) + '분\\n' +
             '최근 수집 경로 성공: ' + (Number(stat.rss_sources_ok)||0) + '개\\n' +
             '최근 신규 선정: ' + (Number(stat.newly_selected)||0) + '건\\n' +
-            (eligible.length ? '기사 전달 가능. 실제 OBS 송출 여부는 별도 확인 필요.'
-              : '보낼 수 있는 기사가 없습니다. 서버 선정 여부·자막 필터·만료 조건을 확인하세요.')
+            '판단: ' + reason
           );
           return;
         }
