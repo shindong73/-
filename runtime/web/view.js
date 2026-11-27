@@ -38,7 +38,7 @@
       });
       document.body.appendChild(diagnosticBox);
     }
-    diagnosticBox.textContent = 'OBS 속보 점검 (읽기 전용)\\n' + message;
+    diagnosticBox.textContent = 'OBS 속보 점검 (읽기 전용)' + String.fromCharCode(10) + message.replaceAll('\\n', String.fromCharCode(10));
   }
   if (DIAGNOSE) showDiagnostics(password
     ? '암호화된 뉴스 피드 연결 중…'
@@ -141,7 +141,7 @@
       // Keep unsynced logs locally; retry without disturbing the on-screen headline.
     } finally { syncingLog=false; }
   }
-  if (LOG_API) setInterval(syncDisplayedLog,60000);
+  if (LOG_API && !DIAGNOSE) setInterval(syncDisplayedLog,60000);
 
   const queue = [];
   const queued = new Set();
