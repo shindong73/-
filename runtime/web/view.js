@@ -399,7 +399,7 @@
         const raw = await r.text();
         // A queued caption can become eligible after 12 minutes without any
         // change to the feed, so keep advancing the queue during steady-state.
-        if (raw === lastPayload) { if (!DIAGNOSE) next(); return; }
+        if (raw === lastPayload && !DIAGNOSE) { next(); return; }
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
         label.textContent = data.label;
