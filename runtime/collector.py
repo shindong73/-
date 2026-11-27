@@ -583,10 +583,20 @@ def _polish_factual_actor_clause(title: str) -> str | None:
         r"(?P<event>.{6,90})", primary
     )
     if not parts:
+        # Handle "정부 정책 발표" alongside "정부, 정책 발표" without
+        # preserving a publisher's bare sentence word-for-word.
+        for actor in ("이재명 대통령", "이 대통령", "국토교통부", "보건복지부",
+                      "행정안전부", "기획재정부", "금융위원회", "대통령실",
+                      "국무회의", "국무총리", "법사위", "국회", "정부",
+                      "헌법재판소", "헌재", "대법원", "특검", "검찰",
+                      "교육부", "외교부", "통일부"):
+            if primary.startswith(actor + " "):
+                return _polish_factual_actor_clause(
+                    actor + ", " + primary[len(actor):].strip())
         return None
     actor, event = parts.group("actor").strip(), parts.group("event").strip()
     result = re.fullmatch(
-        r"(?P<topic>.{3,80}?)\s+"
+        r"(?P<topic>.{2,80}?)\s+"
         r"(?P<verb>심사\s*착수|수사\s*착수|심의\s*착수|"
         r"발표|공개|의결|가결|부결|통과|채택|확정|"
         r"결정|합의|시행|착수|개시|출범)", event
