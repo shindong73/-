@@ -51,6 +51,19 @@ assert.equal(allowed({
 }), false, "excluded party reports must stay blocked");
 
 assert.equal(allowed({
+  kind:"politics",
+  title:"최민희 중징계 처분, 당 윤리심판원 의결",
+  source_title:'[속보] 민주 윤리심판원 "최민희, 당 품위 훼손‥중징계 의결"',
+  source:"MBC"
+}), true, "formally adopted high-profile ethics sanction must reach OBS");
+assert.equal(allowed({
+  kind:"politics",
+  title:"최민희 중징계 처분, 당 윤리심판원 의결",
+  source_title:'[단독] 민주 윤리심판원 "최민희, 당 품위 훼손‥중징계 의결"',
+  source:"MBC"
+}), false, "exclusive-label ban remains active for disciplinary news");
+
+assert.equal(allowed({
   kind:"politics",title:"정부 인사 발표",
   source_title:'국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"'
 }),false, "do not let a shortened caption bypass a party-opinion rejection");
