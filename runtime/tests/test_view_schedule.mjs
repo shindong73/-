@@ -83,6 +83,10 @@ ticker.offer(article('first'));ticker.offer(article('second'));ticker.offer(arti
 ticker.next();
 assert.deepEqual(records,['first'],'first story must start immediately');
 assert.equal(Number(stored.get('view-last-news-display-v1')),clock);
+assert.equal(ticker.canStartCaption({is_manual:true},clock),true,
+  'authenticated manual captions bypass the 12-minute cooldown');
+assert.equal(ticker.canStartCaption({kind:'politics'},clock),false,
+  'ordinary automatic politics still obeys the 12-minute cooldown');
 advance(30360);
 assert.deepEqual(records,['first'],'second must not start immediately after 30-second caption');
 assert.equal(ticker.queue.length,2,'queued articles must not disappear during cooldown');
