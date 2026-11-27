@@ -104,6 +104,46 @@ class EditorialPolicyTests(unittest.TestCase):
                 self.assertEqual(collector.rewrite_headline(original), expected)
                 self.assertNotEqual(collector.rewrite_headline(original), original)
 
+    def test_editorial_caption_is_not_only_particle_replacement(self):
+        # A substantive restructure must actually change publisher phrasing.
+        samples = {
+            "[속보] 정부, 청년 주거지원 확대 발표":
+                "청년 주거지원 확대…정부가 발표",
+            "[속보] 국회, 예산안 가결":
+                "예산안…국회에서 가결",
+            "[속보] 국회, 주요 법안 통과":
+                "주요 법안…국회에서 통과",
+            "[속보] 특검, 주요 사건 수사 착수":
+                "특검이 주요 사건 수사 시작",
+            "정부 주택정책 개편 시행":
+                "주택정책 개편…정부가 시행",
+        }
+        for original, expected in samples.items():
+            with self.subTest(original=original):
+                output = collector.rewrite_headline(original)
+                self.assertEqual(output, expected)
+                self.assertLess(len(output), 101)
+                self.assertNotEqual(
+                    output,
+                    original.replace("[속보] ", "").replace(",", "가"),
+                )
+
+    def test_presidential_quotes_are_summary_not_copied_speech(self):
+        self.assertEqual(
+            collector.rewrite_headline(
+                '이 대통령 “청년 주거지원 확대하겠다”'),
+            "이재명 대통령, 청년 주거지원 확대 방침 밝혀",
+        )
+        self.assertEqual(
+            collector.rewrite_headline(
+                '李대통령 “민생안정 정책 추진하겠다”'),
+            "이재명 대통령, 민생안정 정책 추진 의지 밝혀",
+        )
+        self.assertIsNone(collector.rewrite_headline(
+            '이 대통령 “이것은 아직 이름을 붙이기 어려운 문제”'))
+        self.assertIsNone(collector.rewrite_headline(
+            '민주당 “국정 운영 전면 비판”'))
+
     def test_generic_government_still_requires_no_foreign_context(self):
         self.assertTrue(collector.political_ok(
             "정부, 청년 주거지원 확대 발표", block_negative=True))
