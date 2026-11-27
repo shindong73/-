@@ -77,7 +77,7 @@ class RulesOnlyDeskTests(unittest.TestCase):
         with patch.object(collector, "get_url", return_value=raw.encode("utf8")):
             found = collector.fetch_rss("KBS",collector.NEWS_FEEDS["KBS"],T,settings)
         self.assertEqual(len(found),1)
-        self.assertEqual(found[0]["title"],"주요 법안…국회에서 가결")
+        self.assertEqual(found[0]["title"],"국회서 주요 법안 가결")
         self.assertGreater(found[0]["priority"],0)
 
     def test_old_provider_cooldown_removed_and_rules_run_without_keys(self):
