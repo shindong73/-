@@ -569,6 +569,67 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
     return True
 
 
+def _polish_factual_actor_clause(title: str) -> str | None:
+    """Rebuild a concrete 'actor, action' headline, not just add a particle.
+
+    Reorder who did what, keep the actor and completed action, and never
+    turn proposals, criticism or attributed quotations into settled facts.
+    """
+    if re.search(r'[“”"「」『』‘’]', title) or UNCONFIRMED_EVENT_RE.search(title):
+        return None
+    primary = re.split(r"\s*[.…‥]{1,3}\s*", title, maxsplit=1)[0].strip()
+    parts = re.fullmatch(
+        r"(?P<actor>[가-힣A-Za-z0-9·\s]{2,32}?)\s*[,，:：]\s*"
+        r"(?P<event>.{6,90})", primary
+    )
+    if not parts:
+        return None
+    actor, event = parts.group("actor").strip(), parts.group("event").strip()
+    result = re.fullmatch(
+        r"(?P<topic>.{3,80}?)\s+"
+        r"(?P<verb>심사\s*착수|수사\s*착수|심의\s*착수|"
+        r"발표|공개|의결|가결|부결|통과|채택|확정|"
+        r"결정|합의|시행|착수|개시|출범)", event
+    )
+    if not result:
+        return None
+    topic, verb = result.group("topic", "verb")
+    particle = "이" if ("가" <= actor[-1] <= "힣" and
+                        (ord(actor[-1]) - 0xAC00) % 28) else "가"
+    if verb in ("가결", "부결", "통과", "채택"):
+        if actor in ("국회", "법사위", "법제사법위원회", "국무회의"):
+            caption = f"{topic}…{actor}에서 {verb}"
+        else:
+            caption = f"{topic}…{actor}{particle} {verb}"
+    elif verb in ("심사 착수", "수사 착수", "심의 착수", "착수"):
+        caption = f"{actor}{particle} {topic} {verb.replace('착수','시작')}"
+    else:
+        caption = f"{topic}…{actor}{particle} {verb}"
+    return caption if 10 <= len(caption) <= 100 and caption != title else None
+
+
+def _polish_presidential_quote(quote_text: str) -> str | None:
+    """Summarize speech acts without copying long literal quotations."""
+    first = re.split(r"\s*[.…‥]{1,3}\s*", quote_text, maxsplit=1)[0].strip()
+    if not 8 <= len(first) <= 85:
+        return None
+    for ending, replacement in (
+        ("해야 한다", "필요성 강조"),
+        ("해야", "필요성 강조"),
+        ("필요하다", "필요성 강조"),
+        ("중요하다", "중요성 강조"),
+        ("추진하겠다", "추진 의지 밝혀"),
+        ("확대하겠다", "확대 방침 밝혀"),
+        ("검토하겠다", "검토 방침 밝혀"),
+    ):
+        if first.endswith(ending):
+            topic = first[:-len(ending)].strip(" ,，:：")
+            if len(topic) >= 5:
+                return f"이재명 대통령, {topic} {replacement}"[:100]
+    # Appending "...라고 밝혀" to a quote is not a rewrite.
+    return None
+
+
 def rewrite_headline(original: str) -> str | None:
     """Create a concise, attributed broadcaster-style headline from verified RSS facts.
 
@@ -594,17 +655,19 @@ def rewrite_headline(original: str) -> str | None:
             contents = quote.group(1).strip()
             if ("김용범" in contents and "자본시장" in contents
                     and "전권" in contents and "국정과제" in contents):
-                return "이재명 대통령, 김용범에 자본시장 개혁 전권 부여…핵심 국정과제로 강조"
-            # The quote must be paraphrased as a statement; a claimed future
-            # outcome is not converted into an already-completed policy.
-            statement = re.split(r"\s*[.…‥]{1,3}\s*", contents, maxsplit=1)[0].strip()
-            if 8 <= len(statement) <= 75:
-                return f"이재명 대통령 발언…{statement}라고 밝혀"[:100]
+                return "이재명 대통령, 김용범에게 자본시장 개혁 전권 맡겨…주요 국정과제로 강조"
+            # Summarize the meaning; avoid prefixing a near-verbatim quote.
+            return _polish_presidential_quote(contents)
         # Factual president action without quotation; keep objective action.
         stripped = re.sub(r"^(?:이재명|이|李|李)\s*대통령", "", title).strip(" ,，:：")
         if (8 <= len(stripped) <= 75 and
                 not UNCONFIRMED_EVENT_RE.search(stripped)):
-            return f"이재명 대통령, {stripped} 발표"[:100]
+            actor_rewrite = _polish_factual_actor_clause(
+                "이재명 대통령, " + stripped)
+            if actor_rewrite:
+                return actor_rewrite
+            # A bare sentence need not be a verified official announcement.
+            return None
 
     # A formal party ethics ruling is a concrete decision, not a party
     # opinion, but quote-heavy headlines fail the generic paraphraser.
@@ -704,6 +767,11 @@ def rewrite_headline(original: str) -> str | None:
         # Reproducing a contested quotation without a safe rewording is not
         # appropriate for an auto-generated lower-third.
         return None
+
+    # Rebuild verified actor-action headlines before shallow substitutions.
+    factual_caption = _polish_factual_actor_clause(title)
+    if factual_caption:
+        return factual_caption
 
     # A narrowly-scoped factual rewording, avoiding changes to who did what.
     paraphrases = (
