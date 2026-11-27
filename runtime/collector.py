@@ -510,6 +510,13 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
     # Direct presidential quotes are attributed statements, not automatically
     # treated as proof that a promised policy has already taken effect.
     if confirmed_president_headline(title):
+        # A 'breaking' badge alone does not turn a routine visit, photo-op
+        # or ceremony into a substantive policy development. A concrete
+        # action/statement remains eligible even if announced at an event.
+        if (ROUTINE_EVENT_RE.search(title)
+                and not re.search(r"[“”\"‘’「」『』]|지시|결정|발표|의결|시행|"
+                                  r"전권|부여|위임|개혁|정책|협약|합의|예산", title)):
+            return 0
         return 98
     if confirmed_major_party_discipline(title):
         return 92
