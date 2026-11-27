@@ -1,12 +1,15 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'caption-40s-20261128a';
+  const SCRIPT_VERSION = 'adaptive-captions-20261128b';
   const DISPLAY_MS = 40000;
-  // Minimum interval between the START of two actual news captions.
-  const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
+  // Smart start-to-start gap. High-impact national decisions should not
+  // become stale during a fixed 12-minute wait. Never overlap 40s captions.
+  const REGULAR_GAP_MS = 2 * 60 * 1000;
+  const MAJOR_GAP_MS = 45 * 1000;
+  const MAJOR_PRIORITY = 90;
   const LAST_DISPLAY_AT_KEY = 'view-last-news-display-v1';
   const POLL_MS = 3000;
-  // Keep accepted politics available through multiple 12-minute captions.
+  // Keep validated headlines available while the priority queue drains.
   // Never replay a civil-defense warning outside its short 15-minute window.
   const MAX_AGE_MS = 50 * 60 * 1000;
   const WARNING_MAX_AGE_MS = 15 * 60 * 1000;
@@ -154,8 +157,14 @@
       lastDisplayAt = stored;
     }
   } catch (_) { /* An unavailable storage backend must not break the ticker. */ }
+  function captionGapMs(item) {
+    if (item?.is_test === true || item?.is_manual === true ||
+        item?.kind === 'warning') return 0;
+    return Number(item?.priority || 0) >= MAJOR_PRIORITY
+      ? MAJOR_GAP_MS : REGULAR_GAP_MS;
+  }
   function canStartCaption(item, now = Date.now()) {
-    return item?.is_test === true || item?.is_manual === true || now - lastDisplayAt >= MIN_DISPLAY_GAP_MS;
+    return now - lastDisplayAt >= captionGapMs(item);
   }
   let lastPayload = '';
   let cryptoCache = {salt: null, key: null};
@@ -357,8 +366,8 @@
         queued.delete(item.id);
         continue;
       }
-      // Leave the item queued while another headline is in its 12-minute
-      // cooldown. An unchanged encrypted feed still calls next() every poll.
+      // Keep the item queued while its own adaptive interval has not
+      // elapsed. Every poll advances the queue even if the feed is unchanged.
       if (!canStartCaption(item)) return;
       queue.shift();
       queued.delete(item.id);
@@ -404,8 +413,8 @@
         const r = await fetch('./data/payload.enc.json?v=' + Date.now(), {cache:'no-store'});
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const raw = await r.text();
-        // A queued caption can become eligible after 12 minutes without any
-        // change to the feed, so keep advancing the queue during steady-state.
+        // A queued caption can become eligible without a new feed update;
+        // keep checking even when encrypted payload bytes do not change.
         if (raw === lastPayload && !DIAGNOSE) { next(); return; }
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
@@ -422,9 +431,13 @@
             && Date.parse(x.detected_at || x.published_at) <= now+300000);
           const alreadyHandled = eligible.filter(x => !!seen[x.id]).length;
           const pending = eligible.length - alreadyHandled;
-          const cooldownSeconds = Math.max(0, Math.ceil(
-            (MIN_DISPLAY_GAP_MS - (now-lastDisplayAt))/1000
-          ));
+          const firstPending = eligible.filter(x => !seen[x.id]).sort((a,b) =>
+            Number(b.kind === 'warning') - Number(a.kind === 'warning') ||
+            (Number(b.priority) || 0) - (Number(a.priority) || 0))[0];
+          const nextGap = captionGapMs(firstPending);
+          const cooldownSeconds = firstPending ? Math.max(0, Math.ceil(
+            (nextGap - (now-lastDisplayAt))/1000
+          )) : 0;
           const isOBS = !!window.obsstudio;
           const isHiddenOBS = isOBS && document.visibilityState === 'hidden';
           const stat = data.selection_diagnostics || {};
@@ -435,7 +448,7 @@
               : !pending
                 ? '이 브라우저에서 해당 기사를 이미 처리한 것으로 기록했습니다.'
                 : cooldownSeconds > 0
-                  ? '마지막 자막 이후 12분 제한으로 대기 중입니다.'
+                  ? '속보 중요도별 송출 간격으로 대기 중입니다.'
                   : '이 브라우저에서는 표시할 수 있습니다. 실제 OBS 소스의 URL과 활성 상태를 확인하세요.';
           showDiagnostics(
             '암호화 피드 복호화 성공\\n' +
@@ -445,7 +458,8 @@
             '기사 규칙·유효기간 통과: ' + eligible.length + '건\\n' +
             '이 브라우저에서 이미 처리한 기사: ' + alreadyHandled + '건\\n' +
             '이 브라우저의 미처리 기사: ' + pending + '건\\n' +
-            '12분 제한 잔여: ' + Math.ceil(cooldownSeconds/60) + '분\\n' +
+            '송출 간격: 일반 2분 / 주요 45초 / 긴급경보·수동 즉시\\n' +
+            '다음 기사 대기: ' + cooldownSeconds + '초\\n' +
             '최근 수집 경로 성공: ' + (Number(stat.rss_sources_ok)||0) + '개\\n' +
             '최근 신규 선정: ' + (Number(stat.newly_selected)||0) + '건\\n' +
             '판단: ' + reason
