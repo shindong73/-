@@ -20,7 +20,11 @@ on:
         required: true
         default: 'live'
         type: choice
-        options: [live, sample_a, sample_b]
+        options: [live, manual, sample_a, sample_b]
+      caption_text:
+        description: '수동 속보 내용 (manual 선택 시, 8~120자)'
+        required: false
+        type: string
 permissions:
   contents: write
   pages: write
@@ -29,7 +33,7 @@ concurrency:
   # Minute dispatches may replace another pending collection run.
   # Keep deployments in a distinct group so a later minute tick cannot
   # cancel a queued push that must publish changed web/code assets.
-  group: refresh-renderer-${{ github.event_name == 'push' && 'code-deploy' || 'collection' }}
+  group: refresh-renderer-${{ github.event_name == 'push' && 'code-deploy' || (inputs.task == 'manual' && 'manual-caption' || 'collection') }}
   cancel-in-progress: false
 jobs:
   update-and-deploy:
@@ -73,14 +77,20 @@ jobs:
       - name: Refresh runtime
         env:
           TASK: ${{ inputs.task || 'live' }}
+          MANUAL_TEXT: ${{ inputs.caption_text || '' }}
         run: |
           case "$TASK" in
             sample_a) mode=test_politics ;;
             sample_b) mode=test_earthquake ;;
+            manual) mode=manual ;;
             live) mode=live ;;
             *) echo 'Unknown task'; exit 1 ;;
           esac
-          python runtime/collector.py --mode "$mode"
+          if [ "$mode" = manual ]; then
+            python runtime/collector.py --mode manual --text "$MANUAL_TEXT"
+          else
+            python runtime/collector.py --mode "$mode"
+          fi
       - name: Publish encrypted payload
         env:
           VIEW_PASSPHRASE: ${{ secrets.VIEW_PASSPHRASE }}

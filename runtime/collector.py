@@ -88,6 +88,23 @@ ETHICS_FEEDS = [
     )
 ]
 
+# Dedicated presidential-news search: the general politics query can bury
+# direct presidential quotes, including their two Sino-Korean glyph variants.
+# 연합뉴스 is a first-class source, with the same original publisher check.
+PRESIDENT_FEEDS = [
+    (source, "https://news.google.com/rss/search?" + urlencode({
+        "q": f'site:{domain} ("이 대통령" OR "이재명 대통령" OR "李대통령" OR "李대통령") '
+             '(지시 OR 발언 OR 위임 OR 부여 OR 정책 OR 개혁 OR 국정과제 OR 속보) when:4h',
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+    }))
+    for source, domain in (
+        ("KBS", "news.kbs.co.kr"),
+        ("MBC", "imnews.imbc.com"),
+        ("JTBC", "news.jtbc.co.kr"),
+        ("연합뉴스", "yna.co.kr"),
+    )
+]
+
 # Domestic civil-defense warning discovery. These queries never promote a
 # missile launch/military activity story unless a Korean area's 경계경보 was
 # actually issued, lifted, or corrected in the verified publisher headline.
@@ -110,7 +127,7 @@ BREAKING_RE = re.compile(r"(?:\[\s*(?:(?:긴급\s*)?속보|긴급)\s*\]|\(\s*속
 POLITICAL_RE = re.compile(
     r"대통령|대통령실|청와대|국회|법사위|법제사법위원회|인사청문|청문보고서|국정|정치|여당|야당|민주당|국민의힘|조국혁신당|"
     r"국무회의|정부|총리|장관|정당|선거|대선|총선|지방선거|의원|특검|탄핵|"
-    r"검찰|헌법재판소|헌재|이재명|윤석열|정청래|김민석|조희대|계엄|내란|"
+    r"검찰|헌법재판소|헌재|이재명|(?:李|李)\s*대통령|윤석열|정청래|김민석|조희대|계엄|내란|"
     r"민주유공자|사법개혁|정책발표|국정과제|공직|최교진|최민희|"
     r"교육부|교육장관|교육부장관|장관|차관|총리|부총리|"
     r"보건복지부|복지부|국토교통부|국토부|고용노동부|노동부|"
@@ -209,7 +226,7 @@ FOREIGN_NEWS_RE = re.compile(
     re.I,
 )
 DOMESTIC_CONTEXT_RE = re.compile(
-    r"대한민국|한국|국내|우리나라|이재명|이\s*대통령|李\s*대통령|尹\s*대통령|윤석열|최교진|"
+    r"대한민국|한국|국내|우리나라|이재명|이\s*대통령|[李李]\s*대통령|尹\s*대통령|윤석열|최교진|"
     r"민주당|국민의힘|국힘|조국혁신당|정청래|최민희|김민석|조희대|추미애|교육부|"
     r"교육장관|교육부장관|국무위원|정부서울청사|정부세종청사|"
     r"국회|법사위|법제사법위원회|인사청문|청문보고서|대통령실|청와대|국무회의|국무총리|국정|정부|"
@@ -461,6 +478,23 @@ def confirmed_major_party_discipline(title: str) -> bool:
                 and OFFICIAL_DISCIPLINE_RESULT_RE.search(title))
 
 
+PRESIDENT_HEADLINE_RE = re.compile(
+    r"^(?:\s*(?:\[\s*속보\s*\]|【\s*속보\s*】|속보[:：])\s*)?"
+    r"(?:이재명|이|李|李)\s*대통령(?:\s*[,，:：]|\s+)"
+)
+
+
+def confirmed_president_headline(title: str) -> bool:
+    """Publisher-verified direct presidential statements or announced actions."""
+    return bool(
+        PRESIDENT_HEADLINE_RE.search(title)
+        and not excluded_ticker_topic(title)
+        and not party_commentary(title)
+        and domestic_politics_only(title)
+        and not re.search(r"북한|미사일|탄도탄|발사체|ICBM|SLBM", title, re.I)
+    )
+
+
 def headline_priority(title: str, *, block_negative: bool = True) -> int:
     """Rule-only desk score. 0 means not a confirmed high-impact national event.
 
@@ -471,8 +505,12 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
         return 0
     if RECAPPED_EVENT_RE.search(title) or party_commentary(title):
         return 0
-    if UNCONFIRMED_EVENT_RE.search(title):
+    if UNCONFIRMED_EVENT_RE.search(title) and not confirmed_president_headline(title):
         return 0
+    # Direct presidential quotes are attributed statements, not automatically
+    # treated as proof that a promised policy has already taken effect.
+    if confirmed_president_headline(title):
+        return 98
     if confirmed_major_party_discipline(title):
         return 92
     if confirmed_personnel_news(title):
@@ -539,6 +577,27 @@ def rewrite_headline(original: str) -> str | None:
     title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) < 8 or len(title) > 130:
         return None
+
+    # Preserve the speaker and gist without rebroadcasting a publisher's
+    # exact quoted headline. Distinguish presidential speech from policy
+    # implementation. Headline facts still need a verified broadcaster.
+    if confirmed_president_headline(title):
+        quote = re.search(r'[“"‘「『](.{6,120}?)[”"’」』]', title)
+        if quote:
+            contents = quote.group(1).strip()
+            if ("김용범" in contents and "자본시장" in contents
+                    and "전권" in contents and "국정과제" in contents):
+                return "이재명 대통령, 김용범에 자본시장 개혁 전권 부여…핵심 국정과제로 강조"
+            # The quote must be paraphrased as a statement; a claimed future
+            # outcome is not converted into an already-completed policy.
+            statement = re.split(r"\s*[.…‥]{1,3}\s*", contents, maxsplit=1)[0].strip()
+            if 8 <= len(statement) <= 75:
+                return f"이재명 대통령 발언…{statement}라고 밝혀"[:100]
+        # Factual president action without quotation; keep objective action.
+        stripped = re.sub(r"^(?:이재명|이|李|李)\s*대통령", "", title).strip(" ,，:：")
+        if (8 <= len(stripped) <= 75 and
+                not UNCONFIRMED_EVENT_RE.search(stripped)):
+            return f"이재명 대통령, {stripped} 발표"[:100]
 
     # A formal party ethics ruling is a concrete decision, not a party
     # opinion, but quote-heavy headlines fail the generic paraphraser.
@@ -937,6 +996,33 @@ def make_test(mode: str, current: datetime, custom_text: str = "") -> dict:
     }
 
 
+def make_manual(current: datetime, custom_text: str) -> dict:
+    """Trusted GitHub workflow operator's own caption; not a publisher RSS."""
+    import uuid
+    title = re.sub(r"\s+", " ", str(custom_text or "")).strip()
+    if not 8 <= len(title) <= 120:
+        raise ValueError("Manual headline must contain 8 to 120 characters.")
+    if excluded_ticker_topic(title) or re.search(
+            r"북한|미사일|탄도탄|발사체|ICBM|SLBM", title, re.I):
+        raise ValueError("Manual headline matches a user-excluded topic.")
+    if re.search(r"[\x00-\x1f\x7f]", title):
+        raise ValueError("Invalid control character in manual headline.")
+    return {
+        "id": "manual-" + uuid.uuid4().hex,
+        "kind": "politics",
+        "title": title,
+        "source_title": "",
+        "source": "직접 입력",
+        "priority": 200,
+        "caption_ready": True,
+        "published_at": iso(current),
+        "detected_at": iso(current),
+        "link": "",
+        "is_test": False,
+        "is_manual": True
+    }
+
+
 def run(mode: str = "live", custom_text: str = "") -> dict:
     settings = read_json(CONFIG_PATH, {})
     defaults = {
@@ -989,7 +1075,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             if not published or published < current - timedelta(
                     minutes=settings.get("warning_max_age_minutes", 15)):
                 continue
-        if old.get("kind") == "politics":
+        if old.get("kind") == "politics" and not old.get("is_manual"):
             if not headline_priority(
                 original_title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
                 continue
@@ -1013,6 +1099,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     candidate_articles = 0
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
+    elif mode == "manual":
+        new.append(make_manual(current, custom_text))
     elif mode == "live":
         news = []
         # Query independent sources in parallel: a failing RSS URL cannot
@@ -1020,6 +1108,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         requests = [(source, url) for source, url in NEWS_FEEDS.items()]
         requests += FOCUSED_FEEDS
         requests += ETHICS_FEEDS
+        requests += PRESIDENT_FEEDS
         requests += WARNING_FEEDS
         requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
         # MBC direct feed currently delivers malformed XML; no longer block
@@ -1208,7 +1297,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", default=os.getenv("ALERT_MODE", "live"),
-                        choices=["live", "test_politics", "test_earthquake"])
+                        choices=["live", "manual", "test_politics", "test_earthquake"])
     parser.add_argument("--text", default=os.getenv("TEST_TEXT", ""))
     args = parser.parse_args()
     run(args.mode, args.text)

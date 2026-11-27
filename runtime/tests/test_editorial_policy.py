@@ -13,6 +13,78 @@ CFG = {"headline_max_age_minutes": 180, "exclude_unfavorable_dem_news": True}
 
 
 class EditorialPolicyTests(unittest.TestCase):
+    def test_sino_korean_president_quote_selected_from_yonhap(self):
+        from urllib.parse import unquote
+        headline = "[속보]李대통령 “김용범에 자본시장 개혁 전권 부여…핵심 국정과제”"
+        expected = "이재명 대통령, 김용범에 자본시장 개혁 전권 부여…핵심 국정과제로 강조"
+        self.assertTrue(collector.confirmed_president_headline(headline))
+        self.assertTrue(collector.political_ok(headline, block_negative=True))
+        self.assertEqual(collector.headline_priority(headline),98)
+        self.assertEqual(collector.rewrite_headline(headline),expected)
+        for glyph in ("李", "李", "이", "이재명"):
+            variant = headline.replace("李",glyph)
+            with self.subTest(glyph=glyph):
+                self.assertGreater(collector.headline_priority(variant),0)
+                self.assertEqual(collector.rewrite_headline(variant),expected)
+        self.assertTrue(any(source == "연합뉴스" and "김용범" not in unquote(url)
+                            and "대통령" in unquote(url)
+                            for source,url in collector.PRESIDENT_FEEDS))
+        raw = (
+            "<rss><channel><item><title>" + headline + "</title>"
+            "<pubDate>Fri, 27 Nov 2026 14:27:00 GMT</pubDate>"
+            "<link>https://news.google.com/rss/articles/president-capital</link>"
+            "<source>연합뉴스</source></item></channel></rss>"
+        )
+        at = datetime(2026, 11, 27, 14, 28, tzinfo=timezone.utc)
+        with patch.object(collector, "get_url", return_value=raw.encode("utf-8")):
+            results = collector.fetch_rss("연합뉴스",collector.NEWS_FEEDS["연합뉴스"],at,
+                {"headline_max_age_minutes":90,"exclude_unfavorable_dem_news":False})
+        self.assertEqual(len(results),1)
+        self.assertEqual(results[0]["title"],expected)
+        self.assertEqual(results[0]["source"],"연합뉴스")
+        self.assertEqual(results[0]["priority"],98)
+
+    def test_presidential_news_bans_remain_effective(self):
+        blocked = (
+            "[단독]李대통령 “김용범에 자본시장 개혁 전권 부여”",
+            "[속보] 李대통령 “선관위 대책 발표”",
+            "[속보] 李대통령 “혁신당 관련 발언”",
+            "[속보] 李대통령 “북한 미사일 발사 확인”",
+        )
+        for headline in blocked:
+            with self.subTest(headline=headline):
+                self.assertEqual(collector.headline_priority(headline),0)
+
+    def test_operator_manual_submission_persists_in_live_encrypted_feed(self):
+        import tempfile
+        root=Path(tempfile.mkdtemp())
+        title="이재명 대통령, 자본시장 개혁 정책 방향 발표"
+        manual=collector.make_manual(NOW,title)
+        self.assertTrue(manual["is_manual"])
+        self.assertFalse(manual["is_test"])
+        self.assertEqual(manual["source"],"직접 입력")
+        self.assertEqual(manual["priority"],200)
+        for blocked in (
+            "[단독] 국회 대통령 주요 법안 가결",
+            "선관위 부정선거 대책 발표",
+            "혁신당 정기 기자회견 내용",
+        ):
+            with self.subTest(blocked=blocked):
+                with self.assertRaises(ValueError):
+                    collector.make_manual(NOW,blocked)
+        with patch.object(collector,"CONFIG_PATH",root/"config.json"),\
+             patch.object(collector,"STORE_PATH",root/"seen.json"),\
+             patch.object(collector,"OUT_PATH",root/"payload.json"),\
+             patch.object(collector,"now_utc",return_value=NOW):
+            first=collector.run("manual",title)
+            self.assertEqual(len(first["items"]),1)
+            self.assertTrue(first["items"][0]["is_manual"])
+            self.assertEqual(first["delivery_log"][0]["source"],"직접 입력")
+            with patch.object(collector,"fetch_rss",return_value=[]):
+                second=collector.run("live")
+            self.assertEqual(len(second["items"]),1)
+            self.assertEqual(second["items"][0]["id"],first["items"][0]["id"])
+
     def test_substantive_ordinary_headlines_are_allowed(self):
         # The ticker must not require every real Korean policy development
         # to be a cabinet shake-up or a high court judgment.

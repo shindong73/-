@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow,noarchive">
   <title>OBS 뉴스속보 표시 기록</title>
-  <link rel="stylesheet" href="./history.css?v=warning-audit-20261124">
-  <script src="./history.js?v=obs-diagnose-20261127a" defer></script>
+  <link rel="stylesheet" href="./history.css?v=manual-pages-20261127">
+  <script src="./history.js?v=president-pages-20261127d" defer></script>
 </head>
 <body>
   <main class="shell">
@@ -31,6 +31,16 @@
       <button id="diagnose-view" type="button">OBS 연결 상태 진단</button>
       <button id="export" type="button" disabled>실제 표시 기록 CSV 저장</button>
     </div>
+    <section class="manual-control" aria-labelledby="manual-heading">
+      <h2 id="manual-heading">직접 입력 속보</h2>
+      <p class="notice">관리자 GitHub 계정으로 송출할 수 있습니다. 아래 문구를 작성하고 복사한 뒤, GitHub의 <strong>Run workflow</strong>에서 <strong>task: manual</strong>을 선택하고 <strong>caption_text</strong>에 붙여넣어 실행하세요. 일반 기사 필터와 12분 제한을 기다리지 않으며, OBS에는 출처가 표시되지 않습니다.</p>
+      <label for="manual-caption-text">송출할 자막 (8~120자)</label>
+      <div class="manual-entry">
+        <input id="manual-caption-text" maxlength="120" placeholder="예: 이재명 대통령, 자본시장 개혁 추진 방향 발표" autocomplete="off">
+        <button id="manual-open" type="button">복사 후 관리자 송출 화면 열기</button>
+      </div>
+      <p id="manual-feedback" class="muted" aria-live="polite">GitHub 로그인과 실행 확인이 필요합니다. 이 버튼만 눌러서는 송출되지 않습니다.</p>
+    </section>
     <p id="status" class="muted">속보 및 자막 기록 확인 중…</p>
     <h2>서버가 선정한 속보</h2>
     <p class="notice">자동 수집·편집 필터를 통과한 속보이며 OBS 화면 표시는 별도 확인이 필요합니다. 최대 최근 500건을 보관합니다.</p>
@@ -40,6 +50,7 @@
         <tbody id="selected"></tbody>
       </table>
     </div>
+    <nav id="selected-pages" class="pagination" aria-label="선정된 속보 페이지"></nav>
     <h2>OBS 자막 표시 시작 기록</h2>
     <div class="table-wrap">
       <table>
@@ -47,6 +58,7 @@
         <tbody id="shown"></tbody>
       </table>
     </div>
+    <nav id="shown-pages" class="pagination" aria-label="표시 기록 페이지"></nav>
   </main>
 </body>
 </html>

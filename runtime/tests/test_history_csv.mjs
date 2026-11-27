@@ -22,4 +22,19 @@ assert.ok(source.includes("const displayedIds=new Set(displayed.map(r=>r.id))"),
 const html=readFileSync(join(root,'history.html'),'utf8');
 assert.ok(html.includes('id="selected"'), 'Selected headlines need a separate audit table');
 assert.ok(html.includes('id="shown"'), 'Actual displayed captions need a separate table');
+assert.ok(html.includes('id="selected-pages"') && html.includes('id="shown-pages"'),
+  'Both server selected and actual shown captions must have independent page controls');
+assert.ok(source.includes('const PAGE_SIZE = 15;'), 'Paginate audit results 15 per page');
+assert.ok(source.includes('filtered.slice((shownPage-1)*PAGE_SIZE,shownPage*PAGE_SIZE)'),
+  'Limit actual displayed caption table to the current page');
+assert.ok(source.includes('selectedRows.slice((selectedPage-1)*PAGE_SIZE,selectedPage*PAGE_SIZE)'),
+  'Limit server selection table to the current page');
+assert.ok(source.includes("pager('selected-pages'") && source.includes("pager('shown-pages'"),
+  'Both tables have working previous/next page buttons');
+assert.ok(html.includes('id="manual-caption-text"') && html.includes('id="manual-open"'),
+  'History site must show operator caption entry and GitHub submission handoff');
+assert.ok(source.includes('actions/workflows/refresh.yml') &&
+          source.includes('navigator.clipboard.writeText(title)'),
+  'Only a GitHub-authenticated workflow can submit operator-entered captions');
+
 console.log('CSV formula safety and history-state regression tests OK');

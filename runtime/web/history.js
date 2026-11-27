@@ -11,6 +11,8 @@
   let scanError = '', scanAt = '', newsSuccessAt = '', scanFailures = [];
   let selectionDiagnostics = {};
   let captionKeyPromise = null;
+  const PAGE_SIZE = 15;
+  let selectedPage = 1, shownPage = 1;
   const dateKst = value => {
     const n = Date.parse(value || '');
     return Number.isFinite(n) ? new Date(n).toLocaleString('ko-KR', {
@@ -74,14 +76,49 @@
     displayed=[...unique.values()].sort((a,b)=>
       Date.parse(b.started_at)-Date.parse(a.started_at));
   }
+  function pager(targetId, count, page, setPage) {
+    const target=$(targetId);
+    target.replaceChildren();
+    const pages=Math.ceil(count/PAGE_SIZE);
+    if(pages<=1) return;
+    const button=(label,n,active=false,disabled=false)=>{
+      const el=document.createElement('button');
+      el.type='button';
+      el.textContent=label;
+      el.disabled=disabled;
+      if(active) {
+        el.classList.add('current-page');
+        el.setAttribute('aria-current','page');
+      }
+      el.addEventListener('click',()=>{setPage(n);render();});
+      target.appendChild(el);
+    };
+    const current=Math.max(1,Math.min(pages,page));
+    button('이전',Math.max(1,current-1),false,current===1);
+    const shown=new Set([1,pages]);
+    for(let i=Math.max(1,current-2);i<=Math.min(pages,current+2);i++) shown.add(i);
+    let previous=0;
+    for(const n of [...shown].sort((a,b)=>a-b)){
+      if(previous && n-previous>1){
+        const ellipsis=document.createElement('span');
+        ellipsis.textContent='…';
+        ellipsis.setAttribute('aria-hidden','true');
+        target.appendChild(ellipsis);
+      }
+      button(String(n),n,n===current);
+      previous=n;
+    }
+    button('다음',Math.min(pages,current+1),false,current===pages);
+  }
   function render() {
     const q=$('query').value.trim().toLowerCase();
     const filtered=displayed.filter(r => !q ||
       String(r.title||'').toLowerCase().includes(q) ||
       String(r.source||'').toLowerCase().includes(q));
+    shownPage=Math.min(Math.max(1,shownPage),Math.max(1,Math.ceil(filtered.length/PAGE_SIZE)));
     const shown=$('shown');
     shown.replaceChildren();
-    for(const r of filtered) {
+    for(const r of filtered.slice((shownPage-1)*PAGE_SIZE,shownPage*PAGE_SIZE)) {
       const tr=document.createElement('tr');
       cell(tr,dateKst(r.started_at));
       cell(tr,r.source || '—');
@@ -95,15 +132,17 @@
       const td=cell(tr,'표시된 자막 기록이 없습니다.');
       td.colSpan=5; shown.appendChild(tr);
     }
+    pager('shown-pages',filtered.length,shownPage,n=>{shownPage=n;});
     // The encrypted feed also carries an immutable server-selection trail.
     // Unlike the display log, selection is NOT proof that OBS showed it.
     const selectedRows=selected.filter(r => !q ||
       String(r.title||'').toLowerCase().includes(q) ||
       String(r.source||'').toLowerCase().includes(q));
+    selectedPage=Math.min(Math.max(1,selectedPage),Math.max(1,Math.ceil(selectedRows.length/PAGE_SIZE)));
     const selectedBody=$('selected');
     selectedBody.replaceChildren();
     const displayedIds=new Set(displayed.map(r=>r.id));
-    for(const r of selectedRows) {
+    for(const r of selectedRows.slice((selectedPage-1)*PAGE_SIZE,selectedPage*PAGE_SIZE)) {
       const tr=document.createElement('tr');
       cell(tr,dateKst(r.detected_at || r.published_at));
       cell(tr,r.source || '—');
@@ -116,6 +155,7 @@
       const td=cell(tr,'서버가 선정한 속보 기록이 없습니다.');
       td.colSpan=4; selectedBody.appendChild(tr);
     }
+    pager('selected-pages',selectedRows.length,selectedPage,n=>{selectedPage=n;});
     $('selected-count').textContent=selected.length+'건';
     $('shown-count').textContent=displayed.length+'건';
     $('remote-count').textContent=remote.length+'건';
@@ -227,7 +267,33 @@
       refreshing=false;
     }
   }
-  $('query').addEventListener('input',render);
+  $('query').addEventListener('input',()=>{
+    selectedPage=1; shownPage=1; render();
+  });
+  $('manual-open').addEventListener('click',async()=>{
+    const title=$('manual-caption-text').value.trim().replace(/\s+/g,' ');
+    const feedback=$('manual-feedback');
+    if(title.length<8 || title.length>120){
+      feedback.textContent='문구를 8~120자로 입력해 주세요.';
+      return;
+    }
+    if(/\[\s*단독\s*\]|선\s*관\s*위|선거\s*관리\s*위원회|부정\s*선거|조국\s*혁신당|혁신당|북한|미사일/i.test(title)){
+      feedback.textContent='현재 제외하도록 설정된 주제는 수동 속보에도 입력할 수 없습니다.';
+      return;
+    }
+    // Open synchronously during the click to avoid popup blockers after
+    // awaiting Clipboard API permission.
+    window.open('https://github.com/shindong73/-/actions/workflows/refresh.yml',
+      '_blank','noopener,noreferrer');
+    try {
+      await navigator.clipboard.writeText(title);
+      feedback.textContent='문구를 복사했습니다. GitHub에서 task: manual을 선택하고 caption_text에 붙여넣은 뒤 Run workflow를 누르세요.';
+    } catch (_) {
+      $('manual-caption-text').focus();
+      $('manual-caption-text').select();
+      feedback.textContent='클립보드 사용이 제한돼 문구를 선택했습니다. 직접 복사해 GitHub caption_text에 붙여넣어 주세요.';
+    }
+  });
   $('refresh').addEventListener('click',refresh);
   $('diagnose-view').addEventListener('click',()=>{
     // The secret remains in the fragment, never in the URL query or referrer.

@@ -64,6 +64,31 @@ assert.equal(allowed({
 }), false, "exclusive-label ban remains active for disciplinary news");
 
 assert.equal(allowed({
+  kind:"politics",
+  title:"이재명 대통령, 김용범에 자본시장 개혁 전권 부여…핵심 국정과제로 강조",
+  source_title:"[속보]李대통령 “김용범에 자본시장 개혁 전권 부여…핵심 국정과제”",
+  source:"연합뉴스"
+}),true, "Lee president direct capital-market reform quote must reach OBS");
+assert.equal(allowed({
+  kind:"politics",
+  title:"오늘 밤 특보 임의 표시",
+  source_title:"",
+  source:"직접 입력",is_manual:true,id:"manual-test-a"
+}),true, "GitHub-authenticated user authored headline needs no publisher rewrite");
+assert.equal(allowed({
+  kind:"politics",
+  title:"선관위 부정선거 언급",
+  source_title:"",
+  source:"직접 입력",is_manual:true,id:"manual-test-b"
+}),false,"user excluded topic cannot enter via manual item");
+assert.equal(allowed({
+  kind:"politics",
+  title:"임의 입력 자막",
+  source_title:"",
+  source:"직접 입력",is_manual:false,id:"manual-test-c"
+}),false,"manual gate cannot be bypassed without is_manual marker");
+
+assert.equal(allowed({
   kind:"politics",title:"정부 인사 발표",
   source_title:'국힘 "수능마저 못 믿는 나라…최교진 사퇴로 끝날 일 아냐"'
 }),false, "do not let a shortened caption bypass a party-opinion rejection");
