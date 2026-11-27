@@ -996,6 +996,33 @@ def make_test(mode: str, current: datetime, custom_text: str = "") -> dict:
     }
 
 
+def make_manual(current: datetime, custom_text: str) -> dict:
+    """Trusted GitHub workflow operator's own caption; not a publisher RSS."""
+    import uuid
+    title = re.sub(r"\s+", " ", str(custom_text or "")).strip()
+    if not 8 <= len(title) <= 120:
+        raise ValueError("Manual headline must contain 8 to 120 characters.")
+    if excluded_ticker_topic(title) or re.search(
+            r"북한|미사일|탄도탄|발사체|ICBM|SLBM", title, re.I):
+        raise ValueError("Manual headline matches a user-excluded topic.")
+    if re.search(r"[\x00-\x1f\x7f]", title):
+        raise ValueError("Invalid control character in manual headline.")
+    return {
+        "id": "manual-" + uuid.uuid4().hex,
+        "kind": "politics",
+        "title": title,
+        "source_title": "",
+        "source": "직접 입력",
+        "priority": 200,
+        "caption_ready": True,
+        "published_at": iso(current),
+        "detected_at": iso(current),
+        "link": "",
+        "is_test": False,
+        "is_manual": True
+    }
+
+
 def run(mode: str = "live", custom_text: str = "") -> dict:
     settings = read_json(CONFIG_PATH, {})
     defaults = {
@@ -1048,7 +1075,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
             if not published or published < current - timedelta(
                     minutes=settings.get("warning_max_age_minutes", 15)):
                 continue
-        if old.get("kind") == "politics":
+        if old.get("kind") == "politics" and not old.get("is_manual"):
             if not headline_priority(
                 original_title, block_negative=bool(settings["exclude_unfavorable_dem_news"])):
                 continue
@@ -1072,6 +1099,8 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
     candidate_articles = 0
     if mode.startswith("test_"):
         new.append(make_test(mode, current, custom_text))
+    elif mode == "manual":
+        new.append(make_manual(current, custom_text))
     elif mode == "live":
         news = []
         # Query independent sources in parallel: a failing RSS URL cannot
@@ -1268,7 +1297,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", default=os.getenv("ALERT_MODE", "live"),
-                        choices=["live", "test_politics", "test_earthquake"])
+                        choices=["live", "manual", "test_politics", "test_earthquake"])
     parser.add_argument("--text", default=os.getenv("TEST_TEXT", ""))
     args = parser.parse_args()
     run(args.mode, args.text)
