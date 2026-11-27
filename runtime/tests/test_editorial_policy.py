@@ -162,6 +162,15 @@ class EditorialPolicyTests(unittest.TestCase):
                 self.assertEqual(collector.rewrite_headline(original), caption)
                 self.assertNotEqual(original, caption)
 
+    def test_followup_without_named_party_body_retains_confirmed_ruling(self):
+        title = "최민희, 중징계 의결에 즉각 \"재심 신청\"‥정청래도 \"납득 어려워\""
+        self.assertTrue(collector.confirmed_major_party_discipline(title))
+        self.assertEqual(collector.headline_priority(title, block_negative=True), 92)
+        self.assertEqual(collector.rewrite_headline(title),
+                         "최민희에 대한 중징계 처분 의결")
+        self.assertEqual(collector.headline_priority(
+            "최민희, 중징계 심의에 즉각 재심 검토", block_negative=True), 0)
+
     def test_unconfirmed_party_ethics_discussion_stays_blocked(self):
         rejected = (
             "민주당 최민희 중징계 예정",
