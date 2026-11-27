@@ -281,6 +281,10 @@
       feedback.textContent='현재 제외하도록 설정된 주제는 수동 속보에도 입력할 수 없습니다.';
       return;
     }
+    // Open synchronously during the click to avoid popup blockers after
+    // awaiting Clipboard API permission.
+    window.open('https://github.com/shindong73/-/actions/workflows/refresh.yml',
+      '_blank','noopener,noreferrer');
     try {
       await navigator.clipboard.writeText(title);
       feedback.textContent='문구를 복사했습니다. GitHub에서 task: manual을 선택하고 caption_text에 붙여넣은 뒤 Run workflow를 누르세요.';
@@ -289,8 +293,6 @@
       $('manual-caption-text').select();
       feedback.textContent='클립보드 사용이 제한돼 문구를 선택했습니다. 직접 복사해 GitHub caption_text에 붙여넣어 주세요.';
     }
-    window.open('https://github.com/shindong73/-/actions/workflows/refresh.yml',
-      '_blank','noopener,noreferrer');
   });
   $('refresh').addEventListener('click',refresh);
   $('diagnose-view').addEventListener('click',()=>{
