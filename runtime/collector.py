@@ -590,8 +590,16 @@ def _polish_factual_actor_clause(title: str) -> str | None:
                       "헌법재판소", "헌재", "대법원", "특검", "검찰",
                       "교육부", "외교부", "통일부"):
             if primary.startswith(actor + " "):
-                return _polish_factual_actor_clause(
-                    actor + ", " + primary[len(actor):].strip())
+                rest = primary[len(actor):].strip()
+                rewritten = _polish_factual_actor_clause(actor + ", " + rest)
+                if rewritten:
+                    return rewritten
+                # Even if a comma-based headline cannot be reorganized
+                # further, a bare institutional sentence needs standard
+                # newsroom punctuation; never add a fact or verb.
+                if (re.fullmatch(r".{4,65} (?:시행|의결|발표|공개|확정|결정)", rest)
+                        and len(actor) + len(rest) <= 70):
+                    return f"{actor}, {rest}"
         return None
     actor, event = parts.group("actor").strip(), parts.group("event").strip()
     result = re.fullmatch(
