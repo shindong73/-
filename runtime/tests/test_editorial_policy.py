@@ -142,6 +142,62 @@ class EditorialPolicyTests(unittest.TestCase):
             with self.subTest(blocked=blocked):
                 self.assertEqual(collector.headline_priority(blocked), 0)
 
+    def test_formal_high_profile_party_discipline_is_not_a_negative_news_ban(self):
+        observed = {
+            '[속보] 민주 윤리심판원 "최민희, 당 품위 훼손‥중징계 의결"':
+                "최민희 중징계 처분, 당 윤리심판원 의결",
+            "[속보] 민주당 윤리심판원, 최민희 최고위원 중징계 처분 의결":
+                "최민희 최고위원 중징계 처분, 당 윤리심판원 의결",
+            '[속보] 與 윤리심판원 "최민희 일부 발언 당 품위 훼손…중징계 의결"':
+                "최민희 중징계 처분, 당 윤리심판원 의결",
+            "與, 최민희 '당원권 2년 정지' 중징계 의결":
+                "최민희 당원권 2년 정지 징계 의결",
+        }
+        for original, caption in observed.items():
+            with self.subTest(original=original):
+                self.assertTrue(collector.confirmed_major_party_discipline(original))
+                self.assertTrue(collector.political_ok(original, block_negative=True))
+                self.assertEqual(collector.headline_priority(
+                    original, block_negative=True), 92)
+                self.assertEqual(collector.rewrite_headline(original), caption)
+                self.assertNotEqual(original, caption)
+
+    def test_unconfirmed_party_ethics_discussion_stays_blocked(self):
+        rejected = (
+            "민주당 최민희 중징계 예정",
+            "민주당 윤리심판원, 최민희 중징계 검토",
+            "민주당 윤리심판원, 최민희 중징계 요구",
+            "민주당 윤리심판원, 최민희 중징계 가능성",
+            "[단독] 민주당 윤리심판원 최민희 중징계 의결",
+            "조국혁신당, 최민희 중징계 의결",
+            "선관위, 최민희 중징계 의결"
+        )
+        for title in rejected:
+            with self.subTest(title=title):
+                self.assertFalse(collector.confirmed_major_party_discipline(title))
+                self.assertEqual(collector.headline_priority(title), 0)
+
+    def test_mbc_news_rss_accepts_official_ethics_decision(self):
+        from urllib.parse import unquote
+        self.assertIn("윤리심판원", unquote(collector.NEWS_FEEDS["MBC"]))
+        self.assertTrue(any(source == "MBC" and "윤리심판원" in unquote(feed)
+                            for source, feed in collector.ETHICS_FEEDS))
+        title = '[속보] 민주 윤리심판원 "최민희, 당 품위 훼손‥중징계 의결"'
+        raw = (
+            '<rss><channel><item><title>' + title.replace('"', '&quot;') + '</title>'
+            '<pubDate>Fri, 27 Nov 2026 08:20:00 GMT</pubDate>'
+            '<link>https://news.google.com/rss/articles/ethics-decision</link>'
+            '<source>MBC 뉴스</source></item></channel></rss>'
+        )
+        at = datetime(2026, 11, 27, 8, 21, tzinfo=timezone.utc)
+        with patch.object(collector, "get_url", return_value=raw.encode("utf-8")):
+            results = collector.fetch_rss("MBC", collector.NEWS_FEEDS["MBC"], at,
+                {"headline_max_age_minutes":90, "exclude_unfavorable_dem_news":True})
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["priority"], 92)
+        self.assertEqual(results[0]["title"], "최민희 중징계 처분, 당 윤리심판원 의결")
+        self.assertNotEqual(results[0]["title"], results[0]["source_title"])
+
     def test_confirmed_appeal_is_eligible_and_reworded(self):
         title = "특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소"
         self.assertGreater(collector.headline_priority(title), 0)
