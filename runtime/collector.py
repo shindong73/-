@@ -451,7 +451,13 @@ def confirmed_major_party_discipline(title: str) -> bool:
         r"윤리심판원|중앙당\s*윤리위|당\s*윤리위원회|당원권|당원자격",
         title
     ))
-    return bool(prominent and party_body
+    # A follow-up headline can omit the party body while explicitly
+    # reporting an already-adopted major ruling (e.g. "최민희, 중징계
+    # 의결에 즉각 재심 신청"). The ruling itself remains verified.
+    confirmed_followup = bool(re.search(
+        r"중징계(?:\s*처분)?\s*(?:의결|결정)", title
+    ))
+    return bool(prominent and (party_body or confirmed_followup)
                 and OFFICIAL_DISCIPLINE_RESULT_RE.search(title))
 
 
