@@ -570,21 +570,20 @@ def political_ok(title: str, *, block_negative: bool) -> bool:
 
 
 def _polish_factual_actor_clause(title: str) -> str | None:
-    """Rebuild a concrete 'actor, action' headline, not just add a particle.
+    """Produce Korean TV breaking-news syntax from a completed public action.
 
-    Reorder who did what, keep the actor and completed action, and never
-    turn proposals, criticism or attributed quotations into settled facts.
+    Lead with the actor or actual news, use concise noun-ending headline style,
+    and avoid awkward phrases such as '예산안…국회에서 가결'. Do not infer a
+    vote, an appointment or implementation from a proposed policy.
     """
     if re.search(r'[“”"「」『』‘’]', title) or UNCONFIRMED_EVENT_RE.search(title):
         return None
     primary = re.split(r"\s*[.…‥]{1,3}\s*", title, maxsplit=1)[0].strip()
     parts = re.fullmatch(
         r"(?P<actor>[가-힣A-Za-z0-9·\s]{2,32}?)\s*[,，:：]\s*"
-        r"(?P<event>.{6,90})", primary
+        r"(?P<event>.{4,90})", primary
     )
     if not parts:
-        # Handle "정부 정책 발표" alongside "정부, 정책 발표" without
-        # preserving a publisher's bare sentence word-for-word.
         for actor in ("이재명 대통령", "이 대통령", "국토교통부", "보건복지부",
                       "행정안전부", "기획재정부", "금융위원회", "대통령실",
                       "국무회의", "국무총리", "법사위", "국회", "정부",
@@ -604,18 +603,32 @@ def _polish_factual_actor_clause(title: str) -> str | None:
     if not result:
         return None
     topic, verb = result.group("topic", "verb")
-    particle = "이" if ("가" <= actor[-1] <= "힣" and
-                        (ord(actor[-1]) - 0xAC00) % 28) else "가"
-    if verb in ("가결", "부결", "통과", "채택"):
-        if actor in ("국회", "법사위", "법제사법위원회", "국무회의"):
-            caption = f"{topic}…{actor}에서 {verb}"
+    short_actor = {
+        "이재명 대통령": "이 대통령", "법제사법위원회": "법사위",
+        "국토교통부": "국토부", "보건복지부": "복지부",
+        "행정안전부": "행안부", "기획재정부": "기재부",
+        "헌법재판소": "헌재"
+    }.get(actor, actor)
+    # Actual completed parliamentary decisions: actor first, not a disjointed
+    # topic followed by '국회에서 ...' in a second clause.
+    if verb in ("가결", "부결", "통과", "채택") and actor in (
+            "국회", "법사위", "법제사법위원회"):
+        caption = f"{short_actor}서 {topic} {verb}"
+    elif verb in ("심사 착수", "심의 착수", "수사 착수", "착수", "개시"):
+        action = verb.replace("착수", "시작") if verb != "수사 착수" else "수사 개시"
+        if verb == "수사 착수" and topic.endswith("수사"):
+            # Avoid doubled '수사 수사 개시'.
+            caption = f"{short_actor}, {topic} 개시"
+        elif verb == "수사 착수":
+            caption = f"{short_actor}, {topic} 수사 개시"
         else:
-            caption = f"{topic}…{actor}{particle} {verb}"
-    elif verb in ("심사 착수", "수사 착수", "심의 착수", "착수"):
-        caption = f"{actor}{particle} {topic} {verb.replace('착수','시작')}"
+            caption = f"{short_actor}, {topic} {action}"
+    elif verb in ("발표", "공개"):
+        # Compact newsroom label, not a grammatical subordinate clause.
+        caption = f"{topic}…{short_actor} {verb}"
     else:
-        caption = f"{topic}…{actor}{particle} {verb}"
-    return caption if 10 <= len(caption) <= 100 and caption != title else None
+        caption = f"{short_actor}, {topic} {verb}"
+    return caption if 9 <= len(caption) <= 72 and caption != title else None
 
 
 def _polish_presidential_quote(quote_text: str) -> str | None:
@@ -628,14 +641,14 @@ def _polish_presidential_quote(quote_text: str) -> str | None:
         ("해야", "필요성 강조"),
         ("필요하다", "필요성 강조"),
         ("중요하다", "중요성 강조"),
-        ("추진하겠다", "추진 의지 밝혀"),
+        ("추진하겠다", "추진 의사 밝혀"),
         ("확대하겠다", "확대 방침 밝혀"),
         ("검토하겠다", "검토 방침 밝혀"),
     ):
         if first.endswith(ending):
             topic = first[:-len(ending)].strip(" ,，:：")
             if len(topic) >= 5:
-                return f"이재명 대통령, {topic} {replacement}"[:100]
+                return f"이 대통령, {topic} {replacement}"[:72]
     # Appending "...라고 밝혀" to a quote is not a rewrite.
     return None
 
@@ -665,7 +678,7 @@ def rewrite_headline(original: str) -> str | None:
             contents = quote.group(1).strip()
             if ("김용범" in contents and "자본시장" in contents
                     and "전권" in contents and "국정과제" in contents):
-                return "이재명 대통령, 김용범에게 자본시장 개혁 전권 맡겨…주요 국정과제로 강조"
+                return "이 대통령, 김용범에 자본시장 개혁 전권 맡겨…핵심 국정과제 강조"
             # Summarize the meaning; avoid prefixing a near-verbatim quote.
             return _polish_presidential_quote(contents)
         # Factual president action without quotation; keep objective action.

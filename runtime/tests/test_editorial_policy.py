@@ -16,7 +16,7 @@ class EditorialPolicyTests(unittest.TestCase):
     def test_sino_korean_president_quote_selected_from_yonhap(self):
         from urllib.parse import unquote
         headline = "[속보]李대통령 “김용범에 자본시장 개혁 전권 부여…핵심 국정과제”"
-        expected = "이재명 대통령, 김용범에게 자본시장 개혁 전권 맡겨…주요 국정과제로 강조"
+        expected = "이 대통령, 김용범에 자본시장 개혁 전권 맡겨…핵심 국정과제 강조"
         self.assertTrue(collector.confirmed_president_headline(headline))
         self.assertTrue(collector.political_ok(headline, block_negative=True))
         self.assertEqual(collector.headline_priority(headline),98)
@@ -89,13 +89,13 @@ class EditorialPolicyTests(unittest.TestCase):
         # The ticker must not require every real Korean policy development
         # to be a cabinet shake-up or a high court judgment.
         samples = {
-            "국회, 예산안 심사 착수": "국회가 예산안 심사 시작",
-            "정부, 청년 주거지원 확대 발표": "청년 주거지원 확대…정부가 발표",
-            "특검, 주요 사건 수사 착수": "특검이 주요 사건 수사 시작",
-            "정부 주택정책 개편 시행": "주택정책 개편…정부가 시행",
-            "국회, 법안 처리 합의…상임위 후속 논의": "법안 처리…국회가 합의",
-            "보건복지부, 지원 대상 확대 발표": "지원 대상 확대…보건복지부가 발표",
-            "국토교통부, 주택 공급계획 공개": "주택 공급계획…국토교통부가 공개",
+            "국회, 예산안 심사 착수": "국회, 예산안 심사 시작",
+            "정부, 청년 주거지원 확대 발표": "청년 주거지원 확대…정부 발표",
+            "특검, 주요 사건 수사 착수": "특검, 주요 사건 수사 개시",
+            "정부 주택정책 개편 시행": "정부, 주택정책 개편 시행",
+            "국회, 법안 처리 합의…상임위 후속 논의": "국회, 법안 처리 합의",
+            "보건복지부, 지원 대상 확대 발표": "지원 대상 확대…복지부 발표",
+            "국토교통부, 주택 공급계획 공개": "주택 공급계획…국토부 공개",
         }
         for original, expected in samples.items():
             with self.subTest(title=original):
@@ -108,15 +108,15 @@ class EditorialPolicyTests(unittest.TestCase):
         # A substantive restructure must actually change publisher phrasing.
         samples = {
             "[속보] 정부, 청년 주거지원 확대 발표":
-                "청년 주거지원 확대…정부가 발표",
+                "청년 주거지원 확대…정부 발표",
             "[속보] 국회, 예산안 가결":
-                "예산안…국회에서 가결",
+                "국회서 예산안 가결",
             "[속보] 국회, 주요 법안 통과":
-                "주요 법안…국회에서 통과",
+                "국회서 주요 법안 통과",
             "[속보] 특검, 주요 사건 수사 착수":
-                "특검이 주요 사건 수사 시작",
+                "특검, 주요 사건 수사 개시",
             "정부 주택정책 개편 시행":
-                "주택정책 개편…정부가 시행",
+                "정부, 주택정책 개편 시행",
         }
         for original, expected in samples.items():
             with self.subTest(original=original):
@@ -132,12 +132,12 @@ class EditorialPolicyTests(unittest.TestCase):
         self.assertEqual(
             collector.rewrite_headline(
                 '이 대통령 “청년 주거지원 확대하겠다”'),
-            "이재명 대통령, 청년 주거지원 확대 방침 밝혀",
+            "이 대통령, 청년 주거지원 확대 방침 밝혀",
         )
         self.assertEqual(
             collector.rewrite_headline(
                 '李대통령 “민생안정 정책 추진하겠다”'),
-            "이재명 대통령, 민생안정 정책 추진 의지 밝혀",
+            "이 대통령, 민생안정 정책 추진 의사 밝혀",
         )
         self.assertIsNone(collector.rewrite_headline(
             '이 대통령 “이것은 아직 이름을 붙이기 어려운 문제”'))
@@ -185,7 +185,7 @@ class EditorialPolicyTests(unittest.TestCase):
         with patch.object(collector, "get_url", return_value=raw.encode("utf-8")):
             results = collector.fetch_rss("KBS", collector.NEWS_FEEDS["KBS"], NOW, CFG)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["title"], "지원 대상 확대…보건복지부가 발표")
+        self.assertEqual(results[0]["title"], "지원 대상 확대…복지부 발표")
         self.assertEqual(results[0]["priority"], 60)
 
     def test_quoted_official_document_titles_are_paraphrased(self):
@@ -443,7 +443,7 @@ class EditorialPolicyTests(unittest.TestCase):
 
     def test_publishers_titles_must_be_safely_reworded_or_dropped(self):
         self.assertEqual(collector.rewrite_headline(
-            "[속보] 국회, 예산안 가결"), "예산안…국회에서 가결")
+            "[속보] 국회, 예산안 가결"), "국회서 예산안 가결")
         self.assertEqual(collector.rewrite_headline(
             "[속보] 교육부 장관 사의 표명"), "교육부 장관 사퇴 의사 밝혀")
         self.assertIsNone(collector.rewrite_headline(
@@ -476,7 +476,7 @@ class EditorialPolicyTests(unittest.TestCase):
             selected = collector.fetch_rss(
                 "KBS", collector.NEWS_FEEDS["KBS"], NOW, CFG)
         self.assertEqual(len(selected), 1)
-        self.assertEqual(selected[0]["title"], "주요 법안…국회에서 가결")
+        self.assertEqual(selected[0]["title"], "국회서 주요 법안 가결")
         self.assertEqual(selected[0]["source"], "KBS")
 
     def test_warning_and_missile_policy_unchanged(self):

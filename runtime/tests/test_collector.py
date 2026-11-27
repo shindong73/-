@@ -142,8 +142,8 @@ class CollectorTests(unittest.TestCase):
                 self.assertTrue(collector.political_ok(title, block_negative=True))
 
     def test_rewrite_is_nonidentical(self):
-        self.assertEqual(collector.rewrite_headline('[속보] 국회, 주요 법안 통과'), '주요 법안…국회에서 통과')
-        self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '국정 현안…정부가 발표')
+        self.assertEqual(collector.rewrite_headline('[속보] 국회, 주요 법안 통과'), '국회서 주요 법안 통과')
+        self.assertEqual(collector.rewrite_headline('[속보] 정부, 국정 현안 발표'), '국정 현안…정부 발표')
         # If a factual, nonverbatim paraphrase is not safe, do not broadcast.
         self.assertIsNone(collector.rewrite_headline('[속보] "기밀 주장" 국회 발표'))
         self.assertIsNone(collector.rewrite_headline('[속보] 원형 변경이 어려운 문장'))
@@ -166,7 +166,7 @@ class CollectorTests(unittest.TestCase):
         self.assertIsNone(collector.rewrite_headline('최민희 "확인되지 않은 의혹"'))
         self.assertEqual(
             collector.rewrite_headline('[속보] 국회, 법안 부결'),
-            "법안…국회에서 부결"
+            "국회서 법안 부결"
         )
 
 
@@ -176,7 +176,7 @@ class CollectorTests(unittest.TestCase):
         with patch.object(collector, 'get_url', return_value=source.encode('utf8')):
             results=collector.fetch_rss('KBS', 'unused', T, SETTINGS)
             self.assertEqual(len(results), 1)
-            self.assertEqual(results[0]['title'], '주요 법안…국회에서 통과')
+            self.assertEqual(results[0]['title'], '국회서 주요 법안 통과')
             self.assertEqual(results[0]['source'], 'KBS')
             self.assertNotIn('KBS', results[0]['title'])
             self.assertEqual(collector.fetch_rss('MBC', 'unused', T, SETTINGS), [])
@@ -194,7 +194,7 @@ class CollectorTests(unittest.TestCase):
             config.write_text('{}',encoding='utf8')
             seen=root/'data'/'seen.json'
             out=root/'site'/'data'/'alerts.json'
-            alert={'id':'abc','kind':'politics','title':'주요 법안…국회에서 통과','source':'KBS',
+            alert={'id':'abc','kind':'politics','title':'국회서 주요 법안 통과','source':'KBS',
                    'published_at':collector.iso(T),'link':'https://news.google.com/abc','is_test':False}
             with patch.object(collector,'CONFIG_PATH',config),patch.object(collector,'STORE_PATH',seen),patch.object(collector,'OUT_PATH',out),patch.object(collector,'now_utc',return_value=T),patch.object(collector,'fetch_rss',return_value=[alert]),patch.object(collector,'fetch_quakes',return_value=[]):
                 first=collector.run('live')
