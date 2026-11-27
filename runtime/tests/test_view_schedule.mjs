@@ -14,8 +14,8 @@ assert.ok(view.includes('const MAX_AGE_MS = 50 * 60 * 1000;'),
   'selected politics must remain available across several 12-minute cooldowns');
 assert.ok(view.includes('const WARNING_MAX_AGE_MS = 15 * 60 * 1000;'),
   'civil-defense warnings must keep their short age limit');
-assert.ok(view.includes('if (raw === lastPayload) { if (!DIAGNOSE) next(); return; }'),
-  'unchanged payload must continue driving queued captions');
+assert.ok(view.includes('if (raw === lastPayload && !DIAGNOSE) { next(); return; }'),
+  'unchanged payload must continue driving queued captions; diagnostics stay live');
 assert.ok(view.includes('localStorage.getItem(LAST_DISPLAY_AT_KEY)'),
   'cooldown must survive OBS browser reload');
 assert.ok(view.includes("const DIAGNOSE = new URLSearchParams(location.search).get('diagnose') === '1';"),
@@ -102,6 +102,27 @@ const oldWarning = {...article('expired-warning','warning',100),
 ticker.offer(oldWarning);
 assert.equal(ticker.queued.has('expired-warning'),false,
   'old civil-defense warning must never be resurrected by the longer politics queue');
+advance(12*60000+100);
+const hiddenArticle=article('only-while-visible');
+ticker.offer(hiddenArticle);
+context.window.obsstudio={pluginVersion:'test'};
+context.document={visibilityState:'hidden'};
+ticker.next();
+assert.equal(records.includes('only-while-visible'),false,
+  'hidden OBS source must not consume or log a caption');
+assert.equal(ticker.seen['only-while-visible'],undefined,
+  'hidden OBS source must not mark a caption seen');
+context.document.visibilityState='visible';
+ticker.next();
+assert.equal(records.includes('only-while-visible'),true,
+  'returning to visible OBS scene must allow queued caption to be shown');
+assert.ok(view.includes('이 브라우저에서 이미 처리한 기사: '),
+  'read-only diagnosis must show per-browser already-seen count');
+assert.ok(view.includes('12분 제한 잔여: '),
+  'diagnosis must display remaining cooldown');
+assert.ok(view.includes('일반 브라우저(OBS와 별도 상태)'),
+  'browser diagnosis must not claim to represent the OBS source');
+
 const logFrom = view.indexOf('  let volatileDisplayedLog = [];');
 const logTo = view.indexOf('  async function syncDisplayedLog()',logFrom);
 assert.ok(logFrom > 0 && logTo > logFrom);
