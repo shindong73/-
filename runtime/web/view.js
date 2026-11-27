@@ -1,6 +1,6 @@
 (() => {
   'use strict';
-  const SCRIPT_VERSION = 'queue-fix-20261126c';
+  const SCRIPT_VERSION = 'obs-diagnose-20261127a';
   const DISPLAY_MS = 30000;
   // Minimum interval between the START of two actual news captions.
   const MIN_DISPLAY_GAP_MS = 12 * 60 * 1000;
@@ -19,6 +19,30 @@
   const label = document.querySelector('#label-text');
   // The fragment is never sent to the web server; keep this URL secret.
   const password = new URLSearchParams(location.hash.slice(1)).get('key') || '';
+  // Opt-in, read-only diagnosis. The status page never broadcasts a caption,
+  // modifies viewer seen-state, or writes a false "display started" log.
+  const DIAGNOSE = new URLSearchParams(location.search).get('diagnose') === '1';
+  let diagnosticBox = null;
+  function showDiagnostics(message) {
+    if (!DIAGNOSE) return;
+    if (!diagnosticBox) {
+      diagnosticBox = document.createElement('div');
+      diagnosticBox.id = 'obs-diagnostic';
+      Object.assign(diagnosticBox.style, {
+        position:'fixed',left:'24px',top:'24px',right:'24px',
+        zIndex:'99999',padding:'18px 22px',
+        background:'rgba(0,0,0,.92)',color:'white',
+        fontFamily:'sans-serif',fontSize:'22px',lineHeight:'1.5',
+        whiteSpace:'pre-wrap',overflowWrap:'anywhere',
+        maxWidth:'900px',borderRadius:'12px'
+      });
+      document.body.appendChild(diagnosticBox);
+    }
+    diagnosticBox.textContent = 'OBS 속보 점검 (읽기 전용)' + String.fromCharCode(10) + message.replaceAll('\\n', String.fromCharCode(10));
+  }
+  if (DIAGNOSE) showDiagnostics(password
+    ? '암호화된 뉴스 피드 연결 중…'
+    : '비밀키 누락: 주소 끝에 #key=가 없어 뉴스 피드를 열 수 없습니다.');
   const STORAGE_KEY = 'view-state-v1';
   const DISPLAY_LOG_KEY = 'view-displayed-headlines-v1';
 
@@ -117,7 +141,7 @@
       // Keep unsynced logs locally; retry without disturbing the on-screen headline.
     } finally { syncingLog=false; }
   }
-  if (LOG_API) setInterval(syncDisplayedLog,60000);
+  if (LOG_API && !DIAGNOSE) setInterval(syncDisplayedLog,60000);
 
   const queue = [];
   const queued = new Set();
@@ -371,12 +395,32 @@
         const raw = await r.text();
         // A queued caption can become eligible after 12 minutes without any
         // change to the feed, so keep advancing the queue during steady-state.
-        if (raw === lastPayload) { next(); return; }
+        if (raw === lastPayload) { if (!DIAGNOSE) next(); return; }
         const data = await decrypt(JSON.parse(raw));
         if (!Array.isArray(data.items) || typeof data.label !== 'string') throw new Error('Invalid message');
         label.textContent = data.label;
         fitLabel();
         lastPayload = raw;
+        if (DIAGNOSE) {
+          const now = Date.now();
+          const eligible = data.items.filter(x => x
+            && typeof x.id === 'string'
+            && allowBroadcast(x)
+            && Number.isFinite(Date.parse(x.detected_at || x.published_at))
+            && Date.parse(x.detected_at || x.published_at) >= now-maxDisplayAge(x)
+            && Date.parse(x.detected_at || x.published_at) <= now+300000);
+          const stat = data.selection_diagnostics || {};
+          showDiagnostics(
+            '암호화 피드 복호화 성공\\n' +
+            '현재 서버 대기 기사: ' + data.items.length + '건\\n' +
+            'OBS 규칙·유효기간 통과: ' + eligible.length + '건\\n' +
+            '최근 수집 경로 성공: ' + (Number(stat.rss_sources_ok)||0) + '개\\n' +
+            '최근 신규 선정: ' + (Number(stat.newly_selected)||0) + '건\\n' +
+            (eligible.length ? '기사 전달 가능. 실제 OBS 송출 여부는 별도 확인 필요.'
+              : '보낼 수 있는 기사가 없습니다. 서버 선정 여부·자막 필터·만료 조건을 확인하세요.')
+          );
+          return;
+        }
         // Latest feed is authoritative: abandon articles removed by the
         // tighter editorial policy before they appear in OBS.
         const allowed = new Set(data.items.filter(x => x && typeof x.id === 'string').map(x => x.id));
@@ -388,8 +432,15 @@
         }
         for (const item of data.items) offer(item);
         next();
-      } catch (_) {
-        // Deliberately no visible error or plaintext fallback.
+      } catch (error) {
+        // The real OBS overlay remains blank on error to avoid misreporting;
+        // opt-in diagnosis shows a safe code, never the secret or the feed.
+        if (DIAGNOSE) showDiagnostics(
+          error?.name === 'OperationError'
+            ? '복호화 실패: OBS URL의 #key= 값이 현재 암호화 키와 일치하는지 확인하세요.'
+            : '데이터 수신/처리 오류: ' + String(error?.name || 'Error') +
+              ' (서버 접근·네트워크·스크립트 호환성 확인)'
+        );
       } finally {
         polling = false;
       }
@@ -408,5 +459,7 @@
       } catch (_) { /* Network issues must never interrupt a live caption. */ }
     }
     setInterval(checkClientVersion, 5 * 60 * 1000);
+  } else if (DIAGNOSE && password) {
+    showDiagnostics('이 브라우저는 WebCrypto 암호화 기능을 지원하지 않아 속보를 복호화할 수 없습니다.');
   }
 })();

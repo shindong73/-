@@ -425,8 +425,15 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
         return 95
     if MAJOR_DECISION_RE.search(title):
         return 90
+    if CONFIRMED_NATIONAL_ACTION_RE.search(title):
+        return 80
+    # An announced policy or a resolved public action remains news even
+    # when it took place during a routine press conference or meeting.
+    if SUBSTANTIVE_NEWS_ACTION_RE.search(title):
+        return 60
     if ROUTINE_EVENT_RE.search(title):
         return 0
+    # Backstop for unrecognized actionable formats.
     if CONFIRMED_NATIONAL_ACTION_RE.search(title):
         return 80
     # Broader, lower-priority verified developments are valid ticker items.
@@ -632,6 +639,35 @@ def rewrite_headline(original: str) -> str | None:
                     final = actor[-1]
                     particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
                     return f"{actor}{particle} {action}"[:100]
+
+    # Quoted names of legislation, policies and court cases are common
+    # publisher punctuation. Do not mistake them for party opinion: only an
+    # explicit domestic public actor + a verified completed action may pass.
+    # The quotation content is used as a name, not recast as an asserted fact.
+    if (re.search(r"[‘’“”「」『』]", title)
+            and not party_commentary(title)
+            and not UNCONFIRMED_EVENT_RE.search(title)):
+        unquoted = re.sub(r"[‘’“”「」『』]", "", title)
+        fact = re.fullmatch(
+            r"(?P<actor>국회|정부|대통령실|청와대|국무회의|이재명 대통령|"
+            r"이 대통령|특검|검찰|대법원|헌법재판소|헌재|교육부|"
+            r"보건복지부|국토교통부|행정안전부|금융위원회|법무부)"
+            r"\s*[,，:：]?\s+(?P<action>.{6,90})",
+            unquoted
+        )
+        if fact and re.search(
+            r"(?:의결|가결|부결|통과|선고|확정|발표|시행|공포|"
+            r"상정|채택|기각|인용|접수|착수|개시|도입|폐지|"
+            r"발족|출범|체포|구속|기소|항소|상고|임명|지명|"
+            r"합의|타결|결렬|확대|축소|공개|제출)(?:했다|해|함)?$",
+            fact.group("action")
+        ):
+            actor, action = fact.group("actor", "action")
+            final = actor[-1]
+            particle = "이" if "가" <= final <= "힣" and (ord(final)-0xAC00) % 28 else "가"
+            changed = f"{actor}{particle} {action}"
+            if len(changed) <= 100 and changed != title:
+                return changed
 
     # Fail closed: a word-for-word publisher title is less valuable than
     # withholding a headline that cannot be safely summarized from the facts.

@@ -14,10 +14,23 @@ assert.ok(view.includes('const MAX_AGE_MS = 50 * 60 * 1000;'),
   'selected politics must remain available across several 12-minute cooldowns');
 assert.ok(view.includes('const WARNING_MAX_AGE_MS = 15 * 60 * 1000;'),
   'civil-defense warnings must keep their short age limit');
-assert.ok(view.includes('if (raw === lastPayload) { next(); return; }'),
+assert.ok(view.includes('if (raw === lastPayload) { if (!DIAGNOSE) next(); return; }'),
   'unchanged payload must continue driving queued captions');
 assert.ok(view.includes('localStorage.getItem(LAST_DISPLAY_AT_KEY)'),
   'cooldown must survive OBS browser reload');
+assert.ok(view.includes("const DIAGNOSE = new URLSearchParams(location.search).get('diagnose') === '1';"),
+  'diagnostic mode must be explicit opt-in');
+assert.ok(view.includes("if (LOG_API && !DIAGNOSE) setInterval(syncDisplayedLog,60000);"),
+  'read-only diagnostic page must not upload old browser display logs');
+const diagStart=view.indexOf('        if (DIAGNOSE) {',view.indexOf('    async function poll()'));
+const mainDisplay=view.indexOf('        for (const item of data.items) offer(item);',diagStart);
+assert.ok(diagStart>0 && mainDisplay>diagStart
+  && view.slice(diagStart,mainDisplay).includes('          return;'),
+  'diagnostic page must return before normal queue offer and display');
+const historyHtml=readFileSync(join(dirname(fileURLToPath(import.meta.url)),
+  '..','web','history.html'),'utf8');
+assert.ok(historyHtml.includes('id="diagnose-view"'),
+  'history must expose an OBS connection diagnostic action');
 
 let clock = Date.parse('2026-11-26T00:00:00Z');
 const scheduled = [];
