@@ -37,29 +37,47 @@ UTC = timezone.utc
 # from being buried in large general politics feeds.
 NEWS_FEEDS = {
     "KBS": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사의) when:6h",
+        "q": "site:news.kbs.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 윤리심판원 OR 중징계 OR 당원권 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "MBC": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사의) when:6h",
+        "q": "site:imnews.imbc.com (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 윤리심판원 OR 중징계 OR 당원권 OR 발탁 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
     "JTBC": "https://news-ex.jtbc.co.kr/v1/get/rss/newsflesh",
     "연합뉴스": "https://news.google.com/rss/search?" + urlencode({
-        "q": "site:yna.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 차관 OR 법사위 OR 청문보고서 OR 법무 OR 발탁 OR 사퇴 OR 사의) when:6h",
+        "q": "site:yna.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 차관 OR 법사위 OR 청문보고서 OR 법무 OR 윤리심판원 OR 중징계 OR 당원권 OR 발탁 OR 사퇴 OR 사의) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }),
 }
 JTBC_BACKUP = "https://fs.jtbc.co.kr/RSS/newsflash.xml"
 MBC_DIRECT_POLITICS_RSS = "https://imnews.imbc.com/rss/news/news_01.xml"
 JTBC_POLITICS_SEARCH = "https://news.google.com/rss/search?" + urlencode({
-    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 발탁 OR 사퇴) when:6h",
+    "q": "site:news.jtbc.co.kr (대통령 OR 국회 OR 민주당 OR 국민의힘 OR 특검 OR 정치 OR 계엄 OR 최교진 OR 최민희 OR 정청래 OR 장관 OR 법사위 OR 청문보고서 OR 인사청문 OR 법무 OR 윤리심판원 OR 중징계 OR 당원권 OR 발탁 OR 사퇴) when:6h",
     "hl": "ko", "gl": "KR", "ceid": "KR:ko"
 })
 PERSONNEL_TERMS = "(사의 OR 사퇴 OR 사임 OR 사표 OR 발탁 OR 지명 OR 임명 OR 내정 OR 경질 OR 해임 OR 교체 OR 인선 OR 후보자)"
 FOCUSED_FEEDS = [
     (source, "https://news.google.com/rss/search?" + urlencode({
         "q": f"site:{domain} (교육부 OR 최교진 OR 장관 OR 차관 OR 국무총리 OR 대통령실 OR 국정원장 OR 국가정보원 OR 외교부 OR 통일부 OR 행안부 OR 문체부 OR 개각 OR 법사위 OR 법무부 OR 법무) {PERSONNEL_TERMS} when:6h",
+        "hl": "ko", "gl": "KR", "ceid": "KR:ko"
+    }))
+    for source, domain in (
+        ("KBS", "news.kbs.co.kr"),
+        ("MBC", "imnews.imbc.com"),
+        ("JTBC", "news.jtbc.co.kr"),
+        ("연합뉴스", "yna.co.kr"),
+    )
+]
+
+
+# The general political query can bury a time-sensitive national party ethics
+# decision in its first 100 Google News results. Focused discovery is
+# publisher-verified like all other Google News search feeds.
+ETHICS_FEEDS = [
+    (source, "https://news.google.com/rss/search?" + urlencode({
+        "q": f"site:{domain} (윤리심판원 OR 중앙당윤리위 OR 징계위원회) "
+             "(중징계 OR 징계 의결 OR 당원권 OR 당원자격 OR 당직자격 OR 제명) when:6h",
         "hl": "ko", "gl": "KR", "ceid": "KR:ko"
     }))
     for source, domain in (
@@ -409,6 +427,34 @@ SUBSTANTIVE_NEWS_ACTION_RE = re.compile(
     r"사업\s*착수|시범\s*사업\s*시작|정책\s*추진|본격\s*추진"
 )
 
+
+# A formal national-party ethics decision about a nationally significant
+# political figure is news regardless of whether it helps or hurts any party.
+# A proposal, speculation or call for punishment is not an actual decision.
+OFFICIAL_DISCIPLINE_RESULT_RE = re.compile(
+    r"중징계(?:\s*처분)?\s*(?:의결|결정|받았|받았다|받아)|"
+    r"(?:당원권|당원자격|당직자격)\s*(?:정지\s*)?\d+\s*년\s*(?:정지)?"
+)
+
+
+def confirmed_major_party_discipline(title: str) -> bool:
+    if (excluded_ticker_topic(title) or party_commentary(title)
+            or UNCONFIRMED_EVENT_RE.search(title)
+            or RECAPPED_EVENT_RE.search(title)):
+        return False
+    prominent = bool(re.search(
+        r"최민희|(?:[가-힣]{2,4})\s*(?:최고위원|당대표|국회의원|원내대표)",
+        title
+    ))
+    party_body = bool(re.search(
+        r"민주당|더불어민주당|민주\s*윤리심판원|與\s*윤리심판원|"
+        r"윤리심판원|중앙당\s*윤리위|당\s*윤리위원회|당원권|당원자격",
+        title
+    ))
+    return bool(prominent and party_body
+                and OFFICIAL_DISCIPLINE_RESULT_RE.search(title))
+
+
 def headline_priority(title: str, *, block_negative: bool = True) -> int:
     """Rule-only desk score. 0 means not a confirmed high-impact national event.
 
@@ -421,6 +467,8 @@ def headline_priority(title: str, *, block_negative: bool = True) -> int:
         return 0
     if UNCONFIRMED_EVENT_RE.search(title):
         return 0
+    if confirmed_major_party_discipline(title):
+        return 92
     if confirmed_personnel_news(title):
         return 95
     if MAJOR_DECISION_RE.search(title):
@@ -482,6 +530,25 @@ def rewrite_headline(original: str) -> str | None:
     title = re.sub(r"\s+", " ", title).strip()
     if not title or len(title) < 8 or len(title) > 130:
         return None
+
+    # A formal party ethics ruling is a concrete decision, not a party
+    # opinion, but quote-heavy headlines fail the generic paraphraser.
+    if confirmed_major_party_discipline(title):
+        who = re.search(r"([가-힣]{2,4})\s*(최고위원|당대표|국회의원|원내대표)", title)
+        name = who.group(1) if who else ("최민희" if "최민희" in title else None)
+        role = (" " + who.group(2)) if who and who.group(2) not in ("국회의원",) else ""
+        if name:
+            years = re.search(
+                r"(?:당원권|당원자격)\s*(?:정지\s*)?(\d+)\s*년\s*(?:정지)?",
+                title
+            )
+            if years:
+                status = ("의결" if re.search(r"의결|결정", title)
+                          else "처분")
+                return f"{name}{role} 당원권 {years.group(1)}년 정지 징계 {status}"
+            if "윤리심판원" in title:
+                return f"{name}{role} 중징계 처분, 당 윤리심판원 의결"
+            return f"{name}{role}에 대한 중징계 처분 의결"
 
     # Confirmed parliamentary hearing-report adoption is a nationally
     # significant ministerial confirmation step. Do not confuse with a future
@@ -943,6 +1010,7 @@ def run(mode: str = "live", custom_text: str = "") -> dict:
         # delay all other sources. Each original publisher is still verified.
         requests = [(source, url) for source, url in NEWS_FEEDS.items()]
         requests += FOCUSED_FEEDS
+        requests += ETHICS_FEEDS
         requests += WARNING_FEEDS
         requests += [("JTBC", JTBC_BACKUP), ("JTBC", JTBC_POLITICS_SEARCH)]
         # MBC direct feed currently delivers malformed XML; no longer block
