@@ -76,6 +76,26 @@ class EditorialPolicyTests(unittest.TestCase):
         self.assertEqual(results[0]["title"], "보건복지부가 지원 대상 확대 발표")
         self.assertEqual(results[0]["priority"], 60)
 
+    def test_quoted_official_document_titles_are_paraphrased(self):
+        title = "국회, ‘청년지원법’ 본회의 통과"
+        self.assertGreater(collector.headline_priority(title), 0)
+        self.assertEqual(
+            collector.rewrite_headline(title),
+            "국회가 청년지원법 본회의 통과"
+        )
+
+        # An official announcement remains eligible even at a press briefing.
+        self.assertGreater(collector.headline_priority(
+            "정부, 기자회견 통해 청년 정책 발표"), 0)
+
+        for excluded in (
+            "조국혁신당, ‘청년 지원 확대’ 발표",
+            "[단독] 국회, ‘청년지원법’ 본회의 통과",
+            "선관위, ‘선거 결과’ 공식 발표"
+        ):
+            with self.subTest(excluded=excluded):
+                self.assertEqual(collector.headline_priority(excluded), 0)
+
     def test_confirmed_appeal_is_eligible_and_reworded(self):
         title = "특검, 추경호 '12·3 계엄 표결 방해' 1심 무죄에 항소"
         self.assertGreater(collector.headline_priority(title), 0)
